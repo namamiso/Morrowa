@@ -1,5 +1,6 @@
 package app.morrowa
 
+import android.app.Application
 import android.content.Context
 import android.graphics.Color
 import android.view.GestureDetector
@@ -9,6 +10,9 @@ import android.view.View
 import android.view.ViewConfiguration
 import android.widget.FrameLayout
 import android.widget.TextView
+import androidx.compose.ui.platform.ComposeView
+import androidx.compose.ui.platform.ViewCompositionStrategy
+import app.morrowa.ui.HabitScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
@@ -22,10 +26,13 @@ class MorrowaOverlayView(
 
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val minimumFlingVelocity = ViewConfiguration.get(context).scaledMinimumFlingVelocity
-    private val habitView = createPlaceholderView(
-        label = "Habit",
-        backgroundColor = Color.rgb(18, 37, 63),
-    )
+    private val habitViewModel = HabitViewModel(context.applicationContext as Application)
+    private val habitView: ComposeView = ComposeView(context).also { composeView ->
+        composeView.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+        composeView.setContent {
+            HabitScreen(viewModel = habitViewModel)
+        }
+    }
     private val todoView = createPlaceholderView(
         label = "ToDo",
         backgroundColor = Color.rgb(20, 58, 43),

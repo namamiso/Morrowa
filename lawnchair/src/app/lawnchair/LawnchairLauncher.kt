@@ -26,6 +26,7 @@ import android.os.Bundle
 import android.util.Pair
 import android.view.Display
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.window.SplashScreen
 import androidx.core.view.WindowInsetsCompat
@@ -50,6 +51,9 @@ import app.lawnchair.ui.popup.LawnchairShortcut
 import app.lawnchair.util.getThemedIconPacksInstalled
 import app.lawnchair.util.unsafeLazy
 import app.lawnchair.views.LawnchairFloatingSurfaceView
+import app.morrowa.MorrowaOverlayView
+import app.morrowa.MorrowaPage
+import app.morrowa.MorrowaPageController
 import com.android.launcher3.AbstractFloatingView
 import com.android.launcher3.BaseActivity
 import com.android.launcher3.BubbleTextView
@@ -94,6 +98,10 @@ class LawnchairLauncher : QuickstepLauncher() {
     private val defaultOverlay by unsafeLazy { OverlayCallbackImpl(this) }
     private val prefs by unsafeLazy { PreferenceManager.getInstance(this) }
     private val preferenceManager2 by unsafeLazy { PreferenceManager2.getInstance(this) }
+    private val morrowaPageController by unsafeLazy { MorrowaPageController(this) }
+    private val morrowaOverlayView by unsafeLazy {
+        MorrowaOverlayView(this, morrowaPageController)
+    }
     private val insetsController: WindowInsetsControllerCompat by lazy {
         val window = launcher.window
             ?: throw Exception("WindowInsetsControllerCompat not available.")
@@ -155,6 +163,9 @@ class LawnchairLauncher : QuickstepLauncher() {
     override fun onCreate(savedInstanceState: Bundle?) {
         layoutInflater.factory2 = LawnchairLayoutFactory(this)
         super.onCreate(savedInstanceState)
+
+        attachMorrowaOverlay()
+        observeMorrowaPages()
 
         prefs.launcherTheme.subscribeChanges(this, ::updateTheme)
         prefs.feedProvider.subscribeChanges(this, defaultOverlay::reconnect)
@@ -464,6 +475,11 @@ class LawnchairLauncher : QuickstepLauncher() {
         )
     }
 
+    override fun onPageEndTransition() {
+        super.onPageEndTransition()
+        syncMorrowaPageFromWorkspace()
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         // Only actually closes if required, safe to call if not enabled
@@ -486,6 +502,52 @@ class LawnchairLauncher : QuickstepLauncher() {
                 sRestartFlags = 0
                 recreate()
             }
+        }
+    }
+
+    private fun attachMorrowaOverlay() {
+        if (morrowaOverlayView.parent == null) {
+            dragLayer.addView(
+                morrowaOverlayView,
+                ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.MATCH_PARENT,
+                ),
+            )
+        }
+        morrowaOverlayView.bind(lifecycleScope)
+    }
+
+    private fun observeMorrowaPages() {
+        morrowaPageController.currentPage
+            .distinctUntilChanged()
+            .onEach(::syncWorkspaceForMorrowaPage)
+            .launchIn(lifecycleScope)
+    }
+
+    private fun syncMorrowaPageFromWorkspace() {
+        val page = when (workspace.getNextPage()) {
+            0 -> MorrowaPage.HOME
+            1 -> MorrowaPage.WIDGET_BLANK
+            else -> return
+        }
+        morrowaPageController.setPage(page)
+    }
+
+    private fun syncWorkspaceForMorrowaPage(page: MorrowaPage) {
+        val workspacePage = when (page) {
+            MorrowaPage.HOME -> 0
+            MorrowaPage.WIDGET_BLANK -> 1
+            MorrowaPage.HABIT,
+            MorrowaPage.TODO,
+            -> return
+        }
+
+        if (workspacePage >= workspace.getPageCount()) {
+            return
+        }
+        if (workspace.getNextPage() != workspacePage) {
+            workspace.snapToPage(workspacePage)
         }
     }
 

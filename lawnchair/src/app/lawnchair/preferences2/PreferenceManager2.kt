@@ -367,6 +367,11 @@ class PreferenceManager2 @Inject constructor(
         defaultValue = Workspace.DEFAULT_PAGE,
     )
 
+    val morrowaLastPageType = preference(
+        key = stringPreferencesKey(name = "morrowa_last_page_type"),
+        defaultValue = "home",
+    )
+
     val legacyPopupOptionsMigrated = preference(
         key = booleanPreferencesKey(name = "legacy_popup_options_migrated"),
         defaultValue = false,

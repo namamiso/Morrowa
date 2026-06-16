@@ -21,6 +21,8 @@ enum class MorrowaPage(val storedValue: String) {
         WIDGET_BLANK -> TODO
     }
 
+    val isOverlayPage: Boolean get() = this == HABIT || this == TODO
+
     companion object {
         fun fromStoredValue(value: String?): MorrowaPage =
             entries.firstOrNull { it.storedValue == value } ?: HOME

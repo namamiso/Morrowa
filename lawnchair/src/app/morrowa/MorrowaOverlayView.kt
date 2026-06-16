@@ -104,9 +104,7 @@ class MorrowaOverlayView(
         todoView.visibility = if (page == MorrowaPage.TODO) VISIBLE else GONE
     }
 
-    private fun isOverlayPage(): Boolean =
-        controller.currentPage.value == MorrowaPage.HABIT ||
-            controller.currentPage.value == MorrowaPage.TODO
+    private fun isOverlayPage(): Boolean = controller.currentPage.value.isOverlayPage
 
     private fun createPlaceholderView(label: String, backgroundColor: Int): View =
         TextView(context).apply {

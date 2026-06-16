@@ -455,6 +455,7 @@ class LawnchairLauncher : QuickstepLauncher() {
     override fun onResume() {
         super.onResume()
         restartIfPending()
+        restoreMorrowaPage()
 
         dragLayer.viewTreeObserver.addOnDrawListener(
             object : ViewTreeObserver.OnDrawListener {
@@ -521,11 +522,24 @@ class LawnchairLauncher : QuickstepLauncher() {
     private fun observeMorrowaPages() {
         morrowaPageController.currentPage
             .distinctUntilChanged()
-            .onEach(::syncWorkspaceForMorrowaPage)
+            .onEach { page ->
+                syncWorkspaceForMorrowaPage(page)
+                preferenceManager2.morrowaLastPageType.set(page.storedValue)
+            }
             .launchIn(lifecycleScope)
     }
 
+    private fun restoreMorrowaPage() {
+        val savedPage = MorrowaPage.fromStoredValue(
+            preferenceManager2.morrowaLastPageType.firstBlocking(),
+        )
+        morrowaPageController.setPage(savedPage)
+    }
+
     private fun syncMorrowaPageFromWorkspace() {
+        if (morrowaPageController.currentPage.value.isOverlayPage) {
+            return
+        }
         val page = when (workspace.getNextPage()) {
             0 -> MorrowaPage.HOME
             1 -> MorrowaPage.WIDGET_BLANK

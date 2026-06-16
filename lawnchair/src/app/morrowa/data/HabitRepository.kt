@@ -77,6 +77,10 @@ class HabitRepository(context: Context) {
 
     fun getCompletions(habitId: Long): Flow<List<HabitCompletionEntity>> = dao.getCompletions(habitId)
 
+    fun getCompletionsByDay(
+        habitDay: String,
+    ): Flow<List<HabitCompletionEntity>> = dao.getCompletionsByDay(habitDay)
+
     suspend fun toggleCompletion(habitId: Long, habitDay: String) {
         db.withTransaction {
             if (dao.getCompletion(habitId, habitDay) != null) {

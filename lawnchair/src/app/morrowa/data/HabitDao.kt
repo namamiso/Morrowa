@@ -47,6 +47,9 @@ interface HabitDao {
     @Query("SELECT * FROM habit_completions WHERE habitId = :habitId")
     fun getCompletions(habitId: Long): Flow<List<HabitCompletionEntity>>
 
+    @Query("SELECT * FROM habit_completions WHERE habitDay = :habitDay")
+    fun getCompletionsByDay(habitDay: String): Flow<List<HabitCompletionEntity>>
+
     @Query("SELECT * FROM habit_completions WHERE habitId = :habitId AND habitDay = :habitDay")
     suspend fun getCompletion(habitId: Long, habitDay: String): HabitCompletionEntity?
 

@@ -11,6 +11,9 @@ interface HabitDao {
     @Query("SELECT * FROM habits WHERE isArchived = 0 AND deletedAt IS NULL ORDER BY sortOrder ASC")
     fun getActiveHabits(): Flow<List<HabitEntity>>
 
+    @Query("SELECT * FROM habits WHERE isArchived = 0 AND deletedAt IS NULL ORDER BY sortOrder ASC")
+    suspend fun getActiveHabitsOnce(): List<HabitEntity>
+
     @Query("SELECT * FROM habits WHERE isArchived = 1 AND deletedAt IS NULL")
     fun getArchivedHabits(): Flow<List<HabitEntity>>
 
@@ -49,6 +52,9 @@ interface HabitDao {
 
     @Query("SELECT * FROM habit_completions WHERE habitDay = :habitDay")
     fun getCompletionsByDay(habitDay: String): Flow<List<HabitCompletionEntity>>
+
+    @Query("SELECT * FROM habit_completions WHERE habitDay = :habitDay")
+    suspend fun getCompletionsByDayOnce(habitDay: String): List<HabitCompletionEntity>
 
     @Query("SELECT * FROM habit_completions WHERE habitId = :habitId AND habitDay = :habitDay")
     suspend fun getCompletion(habitId: Long, habitDay: String): HabitCompletionEntity?

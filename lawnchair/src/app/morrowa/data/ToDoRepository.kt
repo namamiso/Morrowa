@@ -11,6 +11,8 @@ class ToDoRepository(context: Context) {
 
     fun getDeletedTodos(): Flow<List<ToDoEntity>> = dao.getDeletedTodos()
 
+    suspend fun getTodoTitle(todoId: Long): String? = dao.getTodo(todoId)?.title
+
     suspend fun addTodo(title: String, memo: String, scheduledDate: Long?): Long {
         val now = System.currentTimeMillis()
         return dao.insert(

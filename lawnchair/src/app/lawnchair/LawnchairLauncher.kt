@@ -54,6 +54,7 @@ import app.lawnchair.views.LawnchairFloatingSurfaceView
 import app.morrowa.MorrowaOverlayView
 import app.morrowa.MorrowaPage
 import app.morrowa.MorrowaPageController
+import app.morrowa.NotificationHelper
 import com.android.launcher3.AbstractFloatingView
 import com.android.launcher3.BaseActivity
 import com.android.launcher3.BubbleTextView
@@ -256,6 +257,8 @@ class LawnchairLauncher : QuickstepLauncher() {
         reloadIconsIfNeeded()
 
         AppDatabase.INSTANCE.get(this).checkpointSync()
+        NotificationHelper.createChannels(this)
+        handleMorrowaPageIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -266,6 +269,8 @@ class LawnchairLauncher : QuickstepLauncher() {
                 gestureController.handle(config)
             }
         }
+
+        handleMorrowaPageIntent(intent)
 
         super.onNewIntent(intent)
     }
@@ -456,6 +461,7 @@ class LawnchairLauncher : QuickstepLauncher() {
         super.onResume()
         restartIfPending()
         restoreMorrowaPage()
+        handleMorrowaPageIntent(intent)
 
         dragLayer.viewTreeObserver.addOnDrawListener(
             object : ViewTreeObserver.OnDrawListener {
@@ -534,6 +540,12 @@ class LawnchairLauncher : QuickstepLauncher() {
             preferenceManager2.morrowaLastPageType.firstBlocking(),
         )
         morrowaPageController.setPage(savedPage)
+    }
+
+    private fun handleMorrowaPageIntent(intent: Intent?) {
+        val morrowaPage = intent?.getStringExtra(NotificationHelper.EXTRA_MORROWA_PAGE) ?: return
+        morrowaPageController.setPage(MorrowaPage.fromStoredValue(morrowaPage))
+        intent.removeExtra(NotificationHelper.EXTRA_MORROWA_PAGE)
     }
 
     private fun syncMorrowaPageFromWorkspace() {

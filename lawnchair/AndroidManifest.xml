@@ -39,6 +39,9 @@
     <uses-permission android:name="android.permission.STATUS_BAR_SERVICE" tools:ignore="ProtectedPermissions"/>
     <uses-permission android:name="android.permission.SUSPEND_APPS" tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.FLASHLIGHT" />
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
 
     <!--override minSdk declared in it-->
     <uses-sdk tools:overrideLibrary="com.kieronquinn.app.smartspacer.sdk" />
@@ -194,6 +197,23 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/smartspace_appwidget_info" />
+        </receiver>
+
+        <receiver
+            android:name="app.morrowa.MorrowaAlarmReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="app.morrowa.action.ALARM" />
+                <action android:name="app.morrowa.action.INCOMPLETE_HABIT" />
+            </intent-filter>
+        </receiver>
+
+        <receiver
+            android:name="app.morrowa.MorrowaBootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
         </receiver>
 
         <meta-data

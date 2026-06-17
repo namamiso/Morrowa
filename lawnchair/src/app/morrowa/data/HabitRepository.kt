@@ -13,7 +13,11 @@ class HabitRepository(context: Context) {
 
     fun getActiveHabits(): Flow<List<HabitEntity>> = dao.getActiveHabits()
 
+    suspend fun getActiveHabitsOnce(): List<HabitEntity> = dao.getActiveHabitsOnce()
+
     fun getArchivedHabits(): Flow<List<HabitEntity>> = dao.getArchivedHabits()
+
+    suspend fun getHabitName(habitId: Long): String? = dao.getHabit(habitId)?.name
 
     suspend fun addHabit(
         name: String,
@@ -80,6 +84,10 @@ class HabitRepository(context: Context) {
     fun getCompletionsByDay(
         habitDay: String,
     ): Flow<List<HabitCompletionEntity>> = dao.getCompletionsByDay(habitDay)
+
+    suspend fun getCompletionsByDayOnce(
+        habitDay: String,
+    ): List<HabitCompletionEntity> = dao.getCompletionsByDayOnce(habitDay)
 
     suspend fun toggleCompletion(habitId: Long, habitDay: String) {
         db.withTransaction {

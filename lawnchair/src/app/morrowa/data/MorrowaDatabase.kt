@@ -11,13 +11,15 @@ import com.android.launcher3.util.MainThreadInitializedObject
         HabitRuleEntity::class,
         HabitCompletionEntity::class,
         ToDoEntity::class,
+        AlarmEntity::class,
     ],
-    version = 2,
+    version = 3,
 )
 abstract class MorrowaDatabase : RoomDatabase() {
 
     abstract fun habitDao(): HabitDao
     abstract fun todoDao(): ToDoDao
+    abstract fun alarmDao(): AlarmDao
 
     companion object {
         val INSTANCE = MainThreadInitializedObject { context ->

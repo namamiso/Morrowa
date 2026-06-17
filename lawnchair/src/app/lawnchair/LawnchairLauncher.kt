@@ -51,6 +51,7 @@ import app.lawnchair.ui.popup.LawnchairShortcut
 import app.lawnchair.util.getThemedIconPacksInstalled
 import app.lawnchair.util.unsafeLazy
 import app.lawnchair.views.LawnchairFloatingSurfaceView
+import app.morrowa.AlarmScheduler
 import app.morrowa.MorrowaOverlayView
 import app.morrowa.MorrowaPage
 import app.morrowa.MorrowaPageController
@@ -258,6 +259,7 @@ class LawnchairLauncher : QuickstepLauncher() {
 
         AppDatabase.INSTANCE.get(this).checkpointSync()
         NotificationHelper.createChannels(this)
+        AlarmScheduler.scheduleIncompleteHabitNotification(this)
         handleMorrowaPageIntent(intent)
     }
 

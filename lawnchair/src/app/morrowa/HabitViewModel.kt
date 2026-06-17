@@ -1,8 +1,11 @@
 package app.morrowa
 
 import android.app.Application
+import android.content.Context
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import app.morrowa.data.AlarmEntity
+import app.morrowa.data.AlarmRepository
 import app.morrowa.data.HabitCompletionEntity
 import app.morrowa.data.HabitEntity
 import app.morrowa.data.HabitRepository
@@ -22,6 +25,7 @@ class HabitViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
     private val repository: HabitRepository = HabitRepository(application)
+    private val alarmRepository: AlarmRepository = AlarmRepository(application)
 
     private val _habitDay = MutableStateFlow(HabitDay.today())
     val habitDay: StateFlow<String> = _habitDay.asStateFlow()
@@ -56,6 +60,34 @@ class HabitViewModel(
 
     fun getCompletionsFlow(habitId: Long): Flow<List<HabitCompletionEntity>> =
         repository.getCompletions(habitId)
+
+    fun getAlarmFlow(habitId: Long): Flow<AlarmEntity?> =
+        alarmRepository.getAlarmFlow(AlarmRepository.TYPE_HABIT, habitId)
+
+    fun setAlarm(context: Context, habitId: Long, habitName: String, hour: Int, minute: Int) {
+        viewModelScope.launch {
+            alarmRepository.setAlarm(AlarmRepository.TYPE_HABIT, habitId, hour, minute)
+            AlarmScheduler.scheduleAlarm(
+                context = context,
+                alarmId = AlarmScheduler.alarmRequestCode(AlarmRepository.TYPE_HABIT, habitId),
+                targetType = AlarmRepository.TYPE_HABIT,
+                targetId = habitId,
+                title = habitName,
+                hour = hour,
+                minute = minute,
+            )
+        }
+    }
+
+    fun deleteAlarm(context: Context, habitId: Long) {
+        viewModelScope.launch {
+            alarmRepository.deleteAlarm(AlarmRepository.TYPE_HABIT, habitId)
+            AlarmScheduler.cancelAlarm(
+                context,
+                AlarmScheduler.alarmRequestCode(AlarmRepository.TYPE_HABIT, habitId),
+            )
+        }
+    }
 
     fun toggleCompletionForDay(habitId: Long, habitDay: String) {
         viewModelScope.launch {

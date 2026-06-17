@@ -41,6 +41,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -57,6 +58,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
     var editingHabit by remember { mutableStateOf<HabitEntity?>(null) }
     var confirmAction by remember { mutableStateOf<ConfirmAction?>(null) }
     var selectedHabitId by remember { mutableStateOf<Long?>(null) }
+    var alarmTarget by remember { mutableStateOf<HabitEntity?>(null) }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -115,6 +117,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
                                         }
                                     },
                                     onEdit = { editingHabit = habit },
+                                    onAlarmClick = { alarmTarget = habit },
                                     onArchive = {
                                         confirmAction = ConfirmAction(
                                             habit = habit,
@@ -195,6 +198,28 @@ fun HabitScreen(viewModel: HabitViewModel) {
                 onDismiss = { confirmAction = null },
             )
         }
+
+        alarmTarget?.let { habit ->
+            val alarm by viewModel.getAlarmFlow(habit.id).collectAsState(initial = null)
+            val ctx = LocalContext.current
+            AlarmEditDialog(
+                initialHour = alarm?.hour ?: 8,
+                initialMinute = alarm?.minute ?: 0,
+                onSave = { h, m ->
+                    viewModel.setAlarm(ctx, habit.id, habit.name, h, m)
+                    alarmTarget = null
+                },
+                onDelete = if (alarm != null) {
+                    {
+                        viewModel.deleteAlarm(ctx, habit.id)
+                        alarmTarget = null
+                    }
+                } else {
+                    null
+                },
+                onDismiss = { alarmTarget = null },
+            )
+        }
     }
 }
 
@@ -206,6 +231,7 @@ private fun HabitItem(
     onToggle: () -> Unit,
     onCalendarClick: () -> Unit,
     onEdit: () -> Unit,
+    onAlarmClick: () -> Unit,
     onArchive: () -> Unit,
     onDelete: () -> Unit,
 ) {
@@ -281,7 +307,10 @@ private fun HabitItem(
             )
             DropdownMenuItem(
                 text = { Text(text = "アラーム設定") },
-                onClick = { menuExpanded = false },
+                onClick = {
+                    menuExpanded = false
+                    onAlarmClick()
+                },
             )
             DropdownMenuItem(
                 text = { Text(text = "アーカイブ") },

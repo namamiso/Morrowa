@@ -45,6 +45,9 @@ object AlarmScheduler {
 
     fun scheduleIncompleteHabitNotification(context: Context) {
         val am = context.getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        if (findIncompleteHabitPendingIntent(context) != null) {
+            return
+        }
         val pi = buildIncompleteHabitPendingIntent(context)
         val triggerAt = nextTriggerMillis(hour = 20, minute = 0)
         scheduleExact(am, triggerAt, pi)
@@ -106,6 +109,14 @@ object AlarmScheduler {
             INCOMPLETE_HABIT_REQUEST_CODE,
             Intent(ACTION_INCOMPLETE_HABIT).setPackage(context.packageName),
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+        )
+
+    private fun findIncompleteHabitPendingIntent(context: Context): PendingIntent? =
+        PendingIntent.getBroadcast(
+            context,
+            INCOMPLETE_HABIT_REQUEST_CODE,
+            Intent(ACTION_INCOMPLETE_HABIT).setPackage(context.packageName),
+            PendingIntent.FLAG_NO_CREATE or PendingIntent.FLAG_IMMUTABLE,
         )
 
     fun alarmRequestCode(targetType: String, targetId: Long): Int =

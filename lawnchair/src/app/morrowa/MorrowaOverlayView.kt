@@ -2,17 +2,14 @@ package app.morrowa
 
 import android.app.Application
 import android.content.Context
-import android.graphics.Color
 import android.view.GestureDetector
-import android.view.Gravity
 import android.view.MotionEvent
-import android.view.View
 import android.view.ViewConfiguration
 import android.widget.FrameLayout
-import android.widget.TextView
 import androidx.compose.ui.platform.ComposeView
 import androidx.compose.ui.platform.ViewCompositionStrategy
 import app.morrowa.ui.HabitScreen
+import app.morrowa.ui.ToDoScreen
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.launchIn
@@ -27,16 +24,19 @@ class MorrowaOverlayView(
     private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
     private val minimumFlingVelocity = ViewConfiguration.get(context).scaledMinimumFlingVelocity
     private val habitViewModel = HabitViewModel(context.applicationContext as Application)
+    private val todoViewModel = ToDoViewModel(context.applicationContext as Application)
     private val habitView: ComposeView = ComposeView(context).also { composeView ->
         composeView.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
         composeView.setContent {
             HabitScreen(viewModel = habitViewModel)
         }
     }
-    private val todoView = createPlaceholderView(
-        label = "ToDo",
-        backgroundColor = Color.rgb(20, 58, 43),
-    )
+    private val todoView: ComposeView = ComposeView(context).also { composeView ->
+        composeView.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
+        composeView.setContent {
+            ToDoScreen(viewModel = todoViewModel)
+        }
+    }
     private var pageCollectionJob: Job? = null
 
     private val gestureDetector = GestureDetector(
@@ -112,14 +112,4 @@ class MorrowaOverlayView(
     }
 
     private fun isOverlayPage(): Boolean = controller.currentPage.value.isOverlayPage
-
-    private fun createPlaceholderView(label: String, backgroundColor: Int): View =
-        TextView(context).apply {
-            text = label
-            textSize = 32f
-            setTextColor(Color.WHITE)
-            setBackgroundColor(backgroundColor)
-            gravity = Gravity.CENTER
-            importantForAccessibility = IMPORTANT_FOR_ACCESSIBILITY_YES
-        }
 }

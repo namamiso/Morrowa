@@ -7,6 +7,7 @@ import app.morrowa.data.HabitCompletionEntity
 import app.morrowa.data.HabitEntity
 import app.morrowa.data.HabitRepository
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -50,6 +51,15 @@ class HabitViewModel(
     fun checkHabit(habitId: Long) {
         viewModelScope.launch {
             repository.toggleCompletion(habitId, habitDay.value)
+        }
+    }
+
+    fun getCompletionsFlow(habitId: Long): Flow<List<HabitCompletionEntity>> =
+        repository.getCompletions(habitId)
+
+    fun toggleCompletionForDay(habitId: Long, habitDay: String) {
+        viewModelScope.launch {
+            repository.toggleCompletion(habitId, habitDay)
         }
     }
 

@@ -21,11 +21,13 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -54,6 +56,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
     var showAddDialog by remember { mutableStateOf(false) }
     var editingHabit by remember { mutableStateOf<HabitEntity?>(null) }
     var confirmAction by remember { mutableStateOf<ConfirmAction?>(null) }
+    var selectedHabitId by remember { mutableStateOf<Long?>(null) }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -99,24 +102,46 @@ fun HabitScreen(viewModel: HabitViewModel) {
                             items = habits,
                             key = { habit -> habit.id },
                         ) { habit ->
-                            HabitItem(
-                                habit = habit,
-                                completed = completions[habit.id] == true,
-                                onToggle = { viewModel.checkHabit(habit.id) },
-                                onEdit = { editingHabit = habit },
-                                onArchive = {
-                                    confirmAction = ConfirmAction(
-                                        habit = habit,
-                                        kind = ConfirmActionKind.Archive,
+                            Column {
+                                HabitItem(
+                                    habit = habit,
+                                    completed = completions[habit.id] == true,
+                                    onToggle = { viewModel.checkHabit(habit.id) },
+                                    onCalendarClick = {
+                                        selectedHabitId = if (selectedHabitId == habit.id) {
+                                            null
+                                        } else {
+                                            habit.id
+                                        }
+                                    },
+                                    onEdit = { editingHabit = habit },
+                                    onArchive = {
+                                        confirmAction = ConfirmAction(
+                                            habit = habit,
+                                            kind = ConfirmActionKind.Archive,
+                                        )
+                                    },
+                                    onDelete = {
+                                        confirmAction = ConfirmAction(
+                                            habit = habit,
+                                            kind = ConfirmActionKind.Delete,
+                                        )
+                                    },
+                                )
+                                if (selectedHabitId == habit.id) {
+                                    val completionsList by viewModel.getCompletionsFlow(habit.id)
+                                        .collectAsState(initial = emptyList())
+                                    val todayHabitDay by viewModel.habitDay.collectAsState()
+                                    GrassCalendar(
+                                        completedDays = completionsList.map { it.habitDay }.toSet(),
+                                        todayHabitDay = todayHabitDay,
+                                        onDayToggle = { day ->
+                                            viewModel.toggleCompletionForDay(habit.id, day)
+                                        },
+                                        modifier = Modifier.padding(top = 8.dp),
                                     )
-                                },
-                                onDelete = {
-                                    confirmAction = ConfirmAction(
-                                        habit = habit,
-                                        kind = ConfirmActionKind.Delete,
-                                    )
-                                },
-                            )
+                                }
+                            }
                         }
                     }
                 }
@@ -179,6 +204,7 @@ private fun HabitItem(
     habit: HabitEntity,
     completed: Boolean,
     onToggle: () -> Unit,
+    onCalendarClick: () -> Unit,
     onEdit: () -> Unit,
     onArchive: () -> Unit,
     onDelete: () -> Unit,
@@ -217,6 +243,18 @@ private fun HabitItem(
                     modifier = Modifier.weight(1f),
                 )
                 Spacer(modifier = Modifier.width(16.dp))
+                IconButton(
+                    onClick = onCalendarClick,
+                    modifier = Modifier.size(40.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.CalendarMonth,
+                        contentDescription = "カレンダー",
+                        tint = Color.White.copy(alpha = 0.72f),
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+                Spacer(modifier = Modifier.width(8.dp))
                 Icon(
                     imageVector = Icons.Rounded.Check,
                     contentDescription = null,

@@ -10,12 +10,14 @@ import com.android.launcher3.util.MainThreadInitializedObject
         HabitEntity::class,
         HabitRuleEntity::class,
         HabitCompletionEntity::class,
+        ToDoEntity::class,
     ],
-    version = 1,
+    version = 2,
 )
 abstract class MorrowaDatabase : RoomDatabase() {
 
     abstract fun habitDao(): HabitDao
+    abstract fun todoDao(): ToDoDao
 
     companion object {
         val INSTANCE = MainThreadInitializedObject { context ->
@@ -23,7 +25,9 @@ abstract class MorrowaDatabase : RoomDatabase() {
                 context,
                 MorrowaDatabase::class.java,
                 "morrowa",
-            ).build()
+            )
+                .fallbackToDestructiveMigration()
+                .build()
         }
     }
 }

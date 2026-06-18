@@ -25,4 +25,10 @@ interface ToDoDao {
 
     @Update
     suspend fun update(todo: ToDoEntity)
+
+    @Query("DELETE FROM todos WHERE id = :todoId")
+    suspend fun deleteTodoPermanently(todoId: Long)
+
+    @Query("DELETE FROM todos WHERE deletedAt IS NOT NULL AND deletedAt < :before")
+    suspend fun deleteOldTodos(before: Long)
 }

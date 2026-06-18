@@ -32,6 +32,12 @@ interface HabitDao {
     @Update
     suspend fun update(habit: HabitEntity)
 
+    @Query("DELETE FROM habits WHERE id = :habitId")
+    suspend fun deleteHabitPermanently(habitId: Long)
+
+    @Query("DELETE FROM habits WHERE deletedAt IS NOT NULL AND deletedAt < :before")
+    suspend fun deleteOldHabits(before: Long)
+
     @Query("SELECT * FROM habit_rules WHERE habitId = :habitId AND endDate IS NULL")
     fun getCurrentRule(habitId: Long): Flow<HabitRuleEntity?>
 

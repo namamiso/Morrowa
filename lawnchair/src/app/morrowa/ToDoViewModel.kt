@@ -25,6 +25,13 @@ class ToDoViewModel(application: Application) : AndroidViewModel(application) {
             initialValue = emptyList(),
         )
 
+    val deletedTodos: StateFlow<List<ToDoEntity>> = repository.getDeletedTodos()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList(),
+        )
+
     fun addTodo(title: String, memo: String, scheduledDate: Long?) {
         viewModelScope.launch {
             repository.addTodo(title = title, memo = memo, scheduledDate = scheduledDate)
@@ -68,6 +75,18 @@ class ToDoViewModel(application: Application) : AndroidViewModel(application) {
     fun moveToTrash(todoId: Long) {
         viewModelScope.launch {
             repository.moveToTrash(todoId)
+        }
+    }
+
+    fun restoreTodo(todoId: Long) {
+        viewModelScope.launch {
+            repository.restoreTodo(todoId)
+        }
+    }
+
+    fun deleteTodoPermanently(todoId: Long) {
+        viewModelScope.launch {
+            repository.deleteTodoPermanently(todoId)
         }
     }
 }

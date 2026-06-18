@@ -37,6 +37,13 @@ class HabitViewModel(
             initialValue = emptyList(),
         )
 
+    val deletedHabits: StateFlow<List<HabitEntity>> = repository.getDeletedHabits()
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = emptyList(),
+        )
+
     val completions: StateFlow<Map<Long, Boolean>> = combine(
         activeHabits,
         habitDay.flatMapLatest { day -> repository.getCompletionsByDay(day) },
@@ -122,6 +129,18 @@ class HabitViewModel(
     fun moveToTrash(habitId: Long) {
         viewModelScope.launch {
             repository.moveToTrash(habitId)
+        }
+    }
+
+    fun restoreHabit(habitId: Long) {
+        viewModelScope.launch {
+            repository.restoreHabit(habitId)
+        }
+    }
+
+    fun deleteHabitPermanently(habitId: Long) {
+        viewModelScope.launch {
+            repository.deleteHabitPermanently(habitId)
         }
     }
 

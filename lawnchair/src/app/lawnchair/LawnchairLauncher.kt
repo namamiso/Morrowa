@@ -56,6 +56,8 @@ import app.morrowa.MorrowaOverlayView
 import app.morrowa.MorrowaPage
 import app.morrowa.MorrowaPageController
 import app.morrowa.NotificationHelper
+import app.morrowa.data.HabitRepository
+import app.morrowa.data.ToDoRepository
 import com.android.launcher3.AbstractFloatingView
 import com.android.launcher3.BaseActivity
 import com.android.launcher3.BubbleTextView
@@ -91,6 +93,7 @@ import com.patrykmichalik.opto.core.firstBlocking
 import com.patrykmichalik.opto.core.onEach
 import dev.kdrag0n.monet.theme.ColorScheme
 import java.util.stream.Stream
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
@@ -259,6 +262,10 @@ class LawnchairLauncher : QuickstepLauncher() {
 
         AppDatabase.INSTANCE.get(this).checkpointSync()
         NotificationHelper.createChannels(this)
+        lifecycleScope.launch(Dispatchers.IO) {
+            HabitRepository(this@LawnchairLauncher).deleteOldHabits()
+            ToDoRepository(this@LawnchairLauncher).deleteOldTodos()
+        }
         AlarmScheduler.scheduleIncompleteHabitNotification(this)
         handleMorrowaPageIntent(intent)
     }

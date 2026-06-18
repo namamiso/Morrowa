@@ -50,4 +50,13 @@ class ToDoRepository(context: Context) {
             )
         }
     }
+
+    suspend fun deleteTodoPermanently(todoId: Long) {
+        dao.deleteTodoPermanently(todoId)
+    }
+
+    suspend fun deleteOldTodos() {
+        val thirtyDaysAgo = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+        dao.deleteOldTodos(thirtyDaysAgo)
+    }
 }

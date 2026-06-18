@@ -17,6 +17,8 @@ class HabitRepository(context: Context) {
 
     fun getArchivedHabits(): Flow<List<HabitEntity>> = dao.getArchivedHabits()
 
+    fun getDeletedHabits(): Flow<List<HabitEntity>> = dao.getDeletedHabits()
+
     suspend fun getHabitName(habitId: Long): String? = dao.getHabit(habitId)?.name
 
     suspend fun addHabit(
@@ -117,6 +119,29 @@ class HabitRepository(context: Context) {
         dao.getHabit(habitId)?.let { habit ->
             dao.update(habit.copy(deletedAt = now, updatedAt = now))
         }
+    }
+
+    suspend fun restoreHabit(habitId: Long) {
+        val now = System.currentTimeMillis()
+        dao.getHabit(habitId)?.let { habit ->
+            dao.update(
+                habit.copy(
+                    deletedAt = null,
+                    isArchived = false,
+                    sortOrder = dao.getNextSortOrder(),
+                    updatedAt = now,
+                ),
+            )
+        }
+    }
+
+    suspend fun deleteHabitPermanently(habitId: Long) {
+        dao.deleteHabitPermanently(habitId)
+    }
+
+    suspend fun deleteOldHabits() {
+        val thirtyDaysAgo = System.currentTimeMillis() - 30L * 24 * 60 * 60 * 1000
+        dao.deleteOldHabits(thirtyDaysAgo)
     }
 
     private fun todayIsoDate(): String = LocalDate.now(JST_ZONE_ID).toString()

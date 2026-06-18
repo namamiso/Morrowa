@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
@@ -61,6 +62,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
     var selectedHabitId by remember { mutableStateOf<Long?>(null) }
     var alarmTarget by remember { mutableStateOf<HabitEntity?>(null) }
     var showTrash by remember { mutableStateOf(false) }
+    var showBackup by remember { mutableStateOf(false) }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -90,6 +92,13 @@ fun HabitScreen(viewModel: HabitViewModel) {
                         fontWeight = FontWeight.Bold,
                         modifier = Modifier.weight(1f),
                     )
+                    IconButton(onClick = { showBackup = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Backup,
+                            contentDescription = "バックアップ",
+                            tint = Color.White.copy(alpha = 0.72f),
+                        )
+                    }
                     IconButton(onClick = { showTrash = true }) {
                         Icon(
                             imageVector = Icons.Rounded.Delete,
@@ -185,6 +194,13 @@ fun HabitScreen(viewModel: HabitViewModel) {
                     onDeletePermanently = { viewModel.deleteHabitPermanently(it) },
                     onBack = { showTrash = false },
                     backgroundColor = HabitBackground,
+                )
+            }
+
+            if (showBackup) {
+                BackupScreen(
+                    backgroundColor = HabitBackground,
+                    onBack = { showBackup = false },
                 )
             }
         }

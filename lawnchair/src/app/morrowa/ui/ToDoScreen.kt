@@ -19,10 +19,12 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -57,6 +59,7 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
     var editingTodo by remember { mutableStateOf<ToDoEntity?>(null) }
     var deletingTodo by remember { mutableStateOf<ToDoEntity?>(null) }
     var alarmTarget by remember { mutableStateOf<ToDoEntity?>(null) }
+    var showTrash by remember { mutableStateOf(false) }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -68,16 +71,32 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(ToDoBackground)
-                .padding(horizontal = 24.dp, vertical = 32.dp),
+                .background(ToDoBackground),
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Text(
-                    text = "ToDo",
-                    color = Color.White,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 32.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "ToDo",
+                        color = Color.White,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { showTrash = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = "ゴミ箱",
+                            tint = Color.White.copy(alpha = 0.72f),
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(24.dp))
 
                 if (todos.isEmpty()) {
@@ -115,9 +134,22 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
 
             FloatingActionButton(
                 onClick = { showAddDialog = true },
-                modifier = Modifier.align(Alignment.BottomEnd),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 24.dp, vertical = 32.dp),
             ) {
                 Icon(imageVector = Icons.Rounded.Add, contentDescription = "追加")
+            }
+
+            if (showTrash) {
+                val deletedTodos by viewModel.deletedTodos.collectAsState()
+                ToDoTrashScreen(
+                    deletedTodos = deletedTodos,
+                    onRestore = { viewModel.restoreTodo(it) },
+                    onDeletePermanently = { viewModel.deleteTodoPermanently(it) },
+                    onBack = { showTrash = false },
+                    backgroundColor = ToDoBackground,
+                )
             }
         }
 

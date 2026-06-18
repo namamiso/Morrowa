@@ -23,6 +23,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
+import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -59,6 +60,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
     var confirmAction by remember { mutableStateOf<ConfirmAction?>(null) }
     var selectedHabitId by remember { mutableStateOf<Long?>(null) }
     var alarmTarget by remember { mutableStateOf<HabitEntity?>(null) }
+    var showTrash by remember { mutableStateOf(false) }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -70,16 +72,32 @@ fun HabitScreen(viewModel: HabitViewModel) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(HabitBackground)
-                .padding(horizontal = 24.dp, vertical = 32.dp),
+                .background(HabitBackground),
         ) {
-            Column(modifier = Modifier.fillMaxSize()) {
-                Text(
-                    text = "Habit",
-                    color = Color.White,
-                    fontSize = 32.sp,
-                    fontWeight = FontWeight.Bold,
-                )
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 24.dp, vertical = 32.dp),
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "Habit",
+                        color = Color.White,
+                        fontSize = 32.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    IconButton(onClick = { showTrash = true }) {
+                        Icon(
+                            imageVector = Icons.Rounded.Delete,
+                            contentDescription = "ゴミ箱",
+                            tint = Color.White.copy(alpha = 0.72f),
+                        )
+                    }
+                }
                 Spacer(modifier = Modifier.height(24.dp))
 
                 if (habits.isEmpty()) {
@@ -152,9 +170,22 @@ fun HabitScreen(viewModel: HabitViewModel) {
 
             FloatingActionButton(
                 onClick = { showAddDialog = true },
-                modifier = Modifier.align(Alignment.BottomEnd),
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .padding(horizontal = 24.dp, vertical = 32.dp),
             ) {
                 Icon(imageVector = Icons.Rounded.Add, contentDescription = "追加")
+            }
+
+            if (showTrash) {
+                val deletedHabits by viewModel.deletedHabits.collectAsState()
+                HabitTrashScreen(
+                    deletedHabits = deletedHabits,
+                    onRestore = { viewModel.restoreHabit(it) },
+                    onDeletePermanently = { viewModel.deleteHabitPermanently(it) },
+                    onBack = { showTrash = false },
+                    backgroundColor = HabitBackground,
+                )
             }
         }
 

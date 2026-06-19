@@ -14,7 +14,6 @@ import com.android.launcher3.dagger.LauncherAppSingleton
 import com.android.launcher3.graphics.ThemeManager
 import com.android.launcher3.util.DaggerSingletonTracker
 import com.android.launcher3.util.LooperExecutor
-import com.patrykmichalik.opto.core.firstBlocking
 import javax.inject.Inject
 import kotlinx.coroutines.CoroutineName
 import kotlinx.coroutines.MainScope
@@ -86,14 +85,14 @@ constructor(
 
     private fun parseIconStateV2(oldState: IconState?): IconState {
         val currentAppShape: IconShape = try {
-            prefs2.iconShape.firstBlocking()
+            prefs2.iconShape.defaultValue
         } catch (e: Exception) {
             Log.d(TAG, "Error getting icon shape", e)
             IconShape.Circle
         }
 
         val currentFolderShape: IconShape = try {
-            prefs2.folderShape.firstBlocking()
+            prefs2.folderShape.defaultValue
         } catch (e: Exception) {
             Log.d(TAG, "Error getting folder shape", e)
             IconShape.Circle

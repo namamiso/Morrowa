@@ -26,6 +26,8 @@ class IdpPreference(
         }
     }
 
+    fun defaultValue(gridOption: InvariantDeviceProfile.GridOption) = defaultSelector(gridOption)
+
     suspend fun set(value: Int, gridOption: InvariantDeviceProfile.GridOption) {
         preferencesDataStore.edit { mutablePreferences ->
             val defaultValue = defaultSelector(gridOption)

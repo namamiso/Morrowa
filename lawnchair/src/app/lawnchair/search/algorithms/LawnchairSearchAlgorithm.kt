@@ -31,7 +31,6 @@ import com.android.launcher3.Utilities
 import com.android.launcher3.allapps.BaseAllAppsAdapter
 import com.android.launcher3.search.SearchAlgorithm
 import com.android.launcher3.search.SearchCallback
-import com.patrykmichalik.opto.core.firstBlocking
 
 sealed class LawnchairSearchAlgorithm(
     protected val context: Context,
@@ -237,7 +236,7 @@ sealed class LawnchairSearchAlgorithm(
 
         fun create(context: Context): LawnchairSearchAlgorithm {
             val prefs = PreferenceManager2.getInstance(context)
-            val searchAlgorithm = prefs.searchAlgorithm.firstBlocking()
+            val searchAlgorithm = prefs.searchAlgorithm.defaultValue
 
             return when {
                 searchAlgorithm == ASI_SEARCH && isASISearchEnabled(context) -> LawnchairASISearchAlgorithm(

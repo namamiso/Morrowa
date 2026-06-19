@@ -127,7 +127,7 @@ class AllAppsSearchInput(context: Context, attrs: AttributeSet?) :
         micIcon = ViewCompat.requireViewById(this, R.id.mic_btn)
         lensIcon = ViewCompat.requireViewById(this, R.id.lens_btn)
 
-        val shouldShowIcons = prefs2.matchHotseatQsbStyle.firstBlocking()
+        val shouldShowIcons = prefs2.matchHotseatQsbStyle.defaultValue
 
         val searchProvider = getSearchProvider(context, prefs2)
         val isGoogle = searchProvider == Google || searchProvider == GoogleGo || searchProvider == PixelSearch
@@ -246,7 +246,7 @@ class AllAppsSearchInput(context: Context, attrs: AttributeSet?) :
             },
         )
 
-        val hide = prefs2.hideAppDrawerSearchBar.firstBlocking()
+        val hide = prefs2.hideAppDrawerSearchBar.defaultValue
         if (hide) {
             isInvisible = true
             layoutParams.height = 0

@@ -70,16 +70,14 @@ import com.android.launcher3.util.DaggerSingletonObject
 import com.android.launcher3.util.DynamicResource
 import com.android.launcher3.util.SafeCloseable
 import com.patrykmichalik.opto.core.PreferenceManager
-import com.patrykmichalik.opto.core.firstBlocking
-import com.patrykmichalik.opto.core.setBlocking
 import javax.inject.Inject
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.distinctUntilChanged
-import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 
 @LauncherAppSingleton
 class PreferenceManager2 @Inject constructor(
@@ -161,7 +159,7 @@ class PreferenceManager2 @Inject constructor(
                 )
         },
         save = { it.toString() },
-        onSet = { it?.let(iconShape::setBlocking) },
+        onSet = { shape -> shape?.let { scope.launch { iconShape.set(it) } } },
     )
 
     val customFolderShape = preference(
@@ -174,7 +172,7 @@ class PreferenceManager2 @Inject constructor(
                 )
         },
         save = { it.toString() },
-        onSet = { it?.let(folderShape::setBlocking) },
+        onSet = { shape -> shape?.let { scope.launch { folderShape.set(it) } } },
     )
 
     val alwaysReloadIcons = preference(
@@ -280,9 +278,7 @@ class PreferenceManager2 @Inject constructor(
 
     val hotseatQsbProvider = preference(
         key = stringPreferencesKey(name = "dock_search_bar_provider"),
-        defaultValue = getRemoteDefault("dock_search_bar_provider")?.let {
-            QsbSearchProvider.fromId(it)
-        } ?: QsbSearchProvider.resolveDefault(context),
+        defaultValue = QsbSearchProvider.resolveDefault(context),
         parse = { QsbSearchProvider.fromId(it) },
         save = { it.id },
         onSet = { reloadHelper.recreate() },
@@ -560,8 +556,7 @@ class PreferenceManager2 @Inject constructor(
     val webSuggestionProvider = preference(
         key = stringPreferencesKey(name = "web_suggestion_provider"),
         defaultValue = WebSearchProvider.fromString(
-            getRemoteDefault("web_suggestion_provider")
-                ?: context.resources.getString(R.string.config_default_web_suggestion_provider),
+            context.resources.getString(R.string.config_default_web_suggestion_provider),
         ),
         parse = { WebSearchProvider.fromString(it) },
         save = { it.toString() },
@@ -824,16 +819,21 @@ class PreferenceManager2 @Inject constructor(
     )
 
     init {
-        initializeIconShape(iconShape.firstBlocking())
+        val defaultIconShape = iconShape.defaultValue
+        initializeIconShape(defaultIconShape)
+        var initializedIconShape = defaultIconShape
         iconShape.get()
-            .drop(1)
             .distinctUntilChanged()
             .onEach { shape ->
                 initializeIconShape(shape)
-                L3ThemeManager.INSTANCE.get(context)
-                LauncherAppState.getInstance(context).model.reloadIfActive()
+                if (initializedIconShape != shape) {
+                    L3ThemeManager.INSTANCE.get(context)
+                    LauncherAppState.getInstance(context).model.reloadIfActive()
+                }
+                initializedIconShape = shape
             }
             .launchIn(scope)
+        observeRemoteDefaults()
     }
 
     suspend fun setGestureForApp(
@@ -868,16 +868,56 @@ class PreferenceManager2 @Inject constructor(
     override fun close() {
     }
 
-    private fun getRemoteDefault(key: String): String? = liveInformationManager.liveInformation
-        .firstBlocking()
-        .features[key]
-        .also { value ->
-            if (value == null) {
-                Log.d(TAG, "getRemoteDefault: $key -> no remote default")
-            } else {
-                Log.d(TAG, "getRemoteDefault: $key -> $value")
+    private fun observeRemoteDefaults() {
+        // Before the first observer completes, local defaults are used; after one write, remote default changes are intentionally ignored as a one-shot migration.
+        liveInformationManager.liveInformation.get()
+            .map { it.features }
+            .distinctUntilChanged()
+            .onEach { features ->
+                var shouldRecreate = false
+
+                shouldRecreate = setRemoteDefaultIfMissing(
+                    key = "dock_search_bar_provider",
+                    value = features["dock_search_bar_provider"],
+                    preferenceKey = hotseatQsbProvider.key,
+                    save = { QsbSearchProvider.fromId(it).id },
+                ) || shouldRecreate
+
+                shouldRecreate = setRemoteDefaultIfMissing(
+                    key = "web_suggestion_provider",
+                    value = features["web_suggestion_provider"],
+                    preferenceKey = webSuggestionProvider.key,
+                    save = { WebSearchProvider.fromString(it).toString() },
+                ) || shouldRecreate
+
+                if (shouldRecreate) {
+                    reloadHelper.recreate()
+                }
+            }
+            .launchIn(scope)
+    }
+
+    private suspend fun setRemoteDefaultIfMissing(
+        key: String,
+        value: String?,
+        preferenceKey: Preferences.Key<String>,
+        save: (String) -> String,
+    ): Boolean {
+        if (value == null) {
+            Log.d(TAG, "remoteDefault: $key -> no remote default")
+            return false
+        }
+
+        Log.d(TAG, "remoteDefault: $key -> $value")
+        var changed = false
+        preferencesDataStore.edit { preferences ->
+            if (preferences[preferenceKey] == null) {
+                preferences[preferenceKey] = save(value)
+                changed = true
             }
         }
+        return changed
+    }
 
     companion object {
         private val Context.preferencesDataStore by preferencesDataStore(

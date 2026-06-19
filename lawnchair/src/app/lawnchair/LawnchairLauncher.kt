@@ -55,6 +55,7 @@ import app.morrowa.AlarmScheduler
 import app.morrowa.MorrowaOverlayView
 import app.morrowa.MorrowaPage
 import app.morrowa.MorrowaPageController
+import app.morrowa.MorrowaTouchController
 import app.morrowa.NotificationHelper
 import app.morrowa.data.HabitRepository
 import app.morrowa.data.ToDoRepository
@@ -89,12 +90,12 @@ import com.android.launcher3.widget.RoundedCornerEnforcement
 import com.android.systemui.plugins.shared.LauncherOverlayManager
 import com.android.systemui.shared.system.QuickStepContract
 import com.kieronquinn.app.smartspacer.sdk.client.SmartspacerClient
-import com.patrykmichalik.opto.core.firstBlocking
 import com.patrykmichalik.opto.core.onEach
 import dev.kdrag0n.monet.theme.ColorScheme
 import java.util.stream.Stream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import kotlinx.coroutines.launch
@@ -162,15 +163,25 @@ class LawnchairLauncher : QuickstepLauncher() {
 
     private lateinit var colorScheme: ColorScheme
     private var hasBackGesture = false
+    private var cachedLockHomeScreen = false
+    private var cachedLauncherPopupOrder = LauncherOptionsPopup.DEFAULT_ORDER_STRING
 
     val gestureController by unsafeLazy { GestureController(this) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         layoutInflater.factory2 = LawnchairLayoutFactory(this)
         super.onCreate(savedInstanceState)
+        cachedLockHomeScreen = resources.getBoolean(R.bool.config_default_lock_home_screen)
 
         attachMorrowaOverlay()
-        observeMorrowaPages()
+        val initialMorrowaPage = consumeMorrowaPageIntent(intent)
+        lifecycleScope.launch {
+            val page = initialMorrowaPage ?: MorrowaPage.fromStoredValue(
+                preferenceManager2.morrowaLastPageType.get().first(),
+            )
+            morrowaPageController.setPage(page)
+            observeMorrowaPages()
+        }
 
         prefs.launcherTheme.subscribeChanges(this, ::updateTheme)
         prefs.feedProvider.subscribeChanges(this, defaultOverlay::reconnect)
@@ -215,7 +226,7 @@ class LawnchairLauncher : QuickstepLauncher() {
                     LawnchairApp.instance.restoreClockInStatusBar()
                 }
             }
-        }
+        }.launchIn(scope = lifecycleScope)
         preferenceManager2.rememberPosition.get().onEach {
             with(launcher.stateManager) {
                 if (it) {
@@ -242,9 +253,17 @@ class LawnchairLauncher : QuickstepLauncher() {
         preferenceManager2.backPressGestureHandler.onEach(launchIn = lifecycleScope) { handler ->
             hasBackGesture = handler !is GestureHandlerConfig.NoOp
         }
+        preferenceManager2.lockHomeScreen.onEach(launchIn = lifecycleScope) { lockHomeScreen ->
+            cachedLockHomeScreen = lockHomeScreen
+        }
+        preferenceManager2.launcherPopupOrder.onEach(launchIn = lifecycleScope) { launcherPopupOrder ->
+            cachedLauncherPopupOrder = launcherPopupOrder
+        }
 
-        LauncherOptionsPopup.restoreMissingPopupOptions(launcher)
-        LauncherOptionsPopup.migrateLegacyPreferences(launcher)
+        lifecycleScope.launch {
+            LauncherOptionsPopup.restoreMissingPopupOptions(launcher)
+            LauncherOptionsPopup.migrateLegacyPreferences(launcher)
+        }
 
         // Handle update from version 12 Alpha 4 to version 12 Alpha 5.
         if (
@@ -267,7 +286,6 @@ class LawnchairLauncher : QuickstepLauncher() {
             ToDoRepository(this@LawnchairLauncher).deleteOldTodos()
         }
         AlarmScheduler.scheduleIncompleteHabitNotification(this)
-        handleMorrowaPageIntent(intent)
     }
 
     override fun onNewIntent(intent: Intent?) {
@@ -307,7 +325,8 @@ class LawnchairLauncher : QuickstepLauncher() {
 
     override fun createTouchControllers(): Array<TouchController> {
         val verticalSwipeController = VerticalSwipeTouchController(this, gestureController)
-        return arrayOf<TouchController>(verticalSwipeController) + super.createTouchControllers()
+        val morrowaSwipeController = MorrowaTouchController(this, morrowaPageController)
+        return arrayOf<TouchController>(verticalSwipeController, morrowaSwipeController) + super.createTouchControllers()
     }
 
     override fun handleHomeTap() {
@@ -349,17 +368,34 @@ class LawnchairLauncher : QuickstepLauncher() {
     }
 
     override fun showDefaultOptions(x: Float, y: Float) {
-        val showWallpaperCarousel = "+carousel" in preferenceManager2.launcherPopupOrder.firstBlocking()
-
-        if (showWallpaperCarousel) {
-            show<LawnchairLauncher>(
-                this,
-                getPopupTarget(x, y),
-                OptionsPopupView.getOptions(this),
+        val target = getPopupTarget(x, y)
+        lifecycleScope.launch {
+            val launcherPopupOrder = preferenceManager2.launcherPopupOrder.get().first()
+            val lockHomeScreen = preferenceManager2.lockHomeScreen.get().first()
+            val options = OptionsPopupView.getOptions(
+                this@LawnchairLauncher,
+                lockHomeScreen,
+                launcherPopupOrder,
             )
-        } else {
-            super.showDefaultOptions(x, y)
+            val showWallpaperCarousel = "+carousel" in launcherPopupOrder
+            if (showWallpaperCarousel) {
+                show<LawnchairLauncher>(
+                    this@LawnchairLauncher,
+                    target,
+                    options,
+                )
+            } else {
+                OptionsPopupView.show(this@LawnchairLauncher, target, options, false)
+            }
         }
+    }
+
+    override fun getOptionsPopupItems(): ArrayList<OptionItem> {
+        return OptionsPopupView.getOptions(
+            this,
+            cachedLockHomeScreen,
+            cachedLauncherPopupOrder,
+        )
     }
 
     private fun <T> show(
@@ -469,7 +505,6 @@ class LawnchairLauncher : QuickstepLauncher() {
     override fun onResume() {
         super.onResume()
         restartIfPending()
-        restoreMorrowaPage()
         handleMorrowaPageIntent(intent)
 
         dragLayer.viewTreeObserver.addOnDrawListener(
@@ -543,17 +578,15 @@ class LawnchairLauncher : QuickstepLauncher() {
             .launchIn(lifecycleScope)
     }
 
-    private fun restoreMorrowaPage() {
-        val savedPage = MorrowaPage.fromStoredValue(
-            preferenceManager2.morrowaLastPageType.firstBlocking(),
-        )
-        morrowaPageController.setPage(savedPage)
+    private fun handleMorrowaPageIntent(intent: Intent?) {
+        val morrowaPage = consumeMorrowaPageIntent(intent) ?: return
+        morrowaPageController.setPage(morrowaPage)
     }
 
-    private fun handleMorrowaPageIntent(intent: Intent?) {
-        val morrowaPage = intent?.getStringExtra(NotificationHelper.EXTRA_MORROWA_PAGE) ?: return
-        morrowaPageController.setPage(MorrowaPage.fromStoredValue(morrowaPage))
+    private fun consumeMorrowaPageIntent(intent: Intent?): MorrowaPage? {
+        val morrowaPage = intent?.getStringExtra(NotificationHelper.EXTRA_MORROWA_PAGE) ?: return null
         intent.removeExtra(NotificationHelper.EXTRA_MORROWA_PAGE)
+        return MorrowaPage.fromStoredValue(morrowaPage)
     }
 
     private fun syncMorrowaPageFromWorkspace() {
@@ -589,10 +622,10 @@ class LawnchairLauncher : QuickstepLauncher() {
      * Reloads app icons if there is an active icon pack & [PreferenceManager2.alwaysReloadIcons] is enabled.
      */
     private fun reloadIconsIfNeeded() {
-        if (
-            preferenceManager2.alwaysReloadIcons.firstBlocking()
-        ) {
-            LauncherAppState.getInstance(this).model.reloadIfActive()
+        lifecycleScope.launch {
+            if (preferenceManager2.alwaysReloadIcons.get().first()) {
+                LauncherAppState.getInstance(this@LawnchairLauncher).model.reloadIfActive()
+            }
         }
     }
 

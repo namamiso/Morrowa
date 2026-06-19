@@ -2607,8 +2607,12 @@ public class Launcher extends StatefulActivity<LauncherState>
      * Shows the default options popup
      */
     public void showDefaultOptions(float x, float y) {
-        OptionsPopupView.show(this, getPopupTarget(x, y), OptionsPopupView.getOptions(this),
+        OptionsPopupView.show(this, getPopupTarget(x, y), getOptionsPopupItems(),
                 false);
+    }
+
+    public ArrayList<OptionsPopupView.OptionItem> getOptionsPopupItems() {
+        return OptionsPopupView.getDefaultOptions(this);
     }
 
     @Override

@@ -237,7 +237,7 @@ class LawnQsbLayout(context: Context, attrs: AttributeSet?) : FrameLayout(contex
             context: Context,
             preferenceManager: PreferenceManager2,
         ): QsbSearchProvider {
-            val provider = preferenceManager.hotseatQsbProvider.firstBlocking()
+            val provider = preferenceManager.hotseatQsbProvider.defaultValue
 
             return if (provider == AppSearch ||
                 resolveIntent(context, provider.createSearchIntent()) ||

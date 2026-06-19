@@ -28,7 +28,6 @@ import com.android.launcher3.dagger.LauncherAppComponent
 import com.android.launcher3.dagger.LauncherAppSingleton
 import com.android.launcher3.util.DaggerSingletonObject
 import com.android.launcher3.util.SafeCloseable
-import com.patrykmichalik.opto.core.firstBlocking
 import javax.inject.Inject
 
 @LauncherAppSingleton
@@ -56,6 +55,6 @@ class IconShapeManager @Inject constructor(
         fun getSystemIconShape(context: Context) = INSTANCE.get(context).systemIconShape
 
         @JvmStatic
-        fun getWindowTransitionRadius(context: Context) = PreferenceManager2.getInstance(context).iconShape.firstBlocking().windowTransitionRadius
+        fun getWindowTransitionRadius(context: Context) = PreferenceManager2.getInstance(context).iconShape.defaultValue.windowTransitionRadius
     }
 }

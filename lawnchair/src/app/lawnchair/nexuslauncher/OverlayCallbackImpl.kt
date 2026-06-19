@@ -17,7 +17,6 @@ import com.google.android.libraries.launcherclient.LauncherClient
 import com.google.android.libraries.launcherclient.LauncherClientCallbacks
 import com.google.android.libraries.launcherclient.LauncherClientService
 import com.google.android.libraries.launcherclient.StaticInteger
-import com.patrykmichalik.opto.core.firstBlocking
 
 /**
  * Implements [LauncherOverlay] and passes all the corresponding events to [LauncherClient],
@@ -37,7 +36,7 @@ class OverlayCallbackImpl(private val mLauncher: LawnchairLauncher) :
     private var mFlags = 0
 
     init {
-        val enableFeed = PreferenceManager2.getInstance(mLauncher).enableFeed.firstBlocking()
+        val enableFeed = PreferenceManager2.getInstance(mLauncher).enableFeed.defaultValue
         mClient = LauncherClient(
             mLauncher,
             this,

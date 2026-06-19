@@ -63,7 +63,7 @@ public class AccessibilityActionsView extends View implements StateListener<Laun
     @Override
     public AccessibilityNodeInfo createAccessibilityNodeInfo() {
         AccessibilityNodeInfo info = super.createAccessibilityNodeInfo();
-        for (OptionItem item : OptionsPopupView.getOptions(Launcher.getLauncher(getContext()))) {
+        for (OptionItem item : Launcher.getLauncher(getContext()).getOptionsPopupItems()) {
             info.addAction(new AccessibilityAction(item.labelRes, item.label));
         }
         return info;
@@ -80,7 +80,7 @@ public class AccessibilityActionsView extends View implements StateListener<Laun
             l.getStateManager().goToState(ALL_APPS);
             return true;
         }
-        for (OptionItem item : OptionsPopupView.getOptions(l)) {
+        for (OptionItem item : l.getOptionsPopupItems()) {
             if (item.labelRes == action) {
                 if (item.eventId.getId() > 0) {
                     l.getStatsLogManager().logger().log(item.eventId);

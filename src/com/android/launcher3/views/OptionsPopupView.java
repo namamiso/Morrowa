@@ -200,19 +200,29 @@ public class OptionsPopupView<T extends Context & ActivityContext> extends Arrow
     }
 
     /**
-     * Returns the list of supported actions
+     * Returns the list of supported actions.
      */
-    public static ArrayList<OptionItem> getOptions(Launcher launcher) {
+    public static ArrayList<OptionItem> getOptions(
+            Launcher launcher, boolean lockHomeScreen, String launcherPopupOrder) {
         return LauncherOptionsPopup.INSTANCE.getLauncherOptions(
-            launcher,
-            OptionsPopupView::toggleHomeScreenLock,
-            OptionsPopupView::startSystemSettings,
-            OptionsPopupView::enterHomeGardening,
-            OptionsPopupView::enterAllApps,
-            OptionsPopupView::startWallpaperPicker,
-            OptionsPopupView::onWidgetsClicked,
-            OptionsPopupView::startSettings
+                launcher,
+                lockHomeScreen,
+                launcherPopupOrder,
+                OptionsPopupView::toggleHomeScreenLock,
+                OptionsPopupView::startSystemSettings,
+                OptionsPopupView::enterHomeGardening,
+                OptionsPopupView::enterAllApps,
+                OptionsPopupView::startWallpaperPicker,
+                OptionsPopupView::onWidgetsClicked,
+                OptionsPopupView::startSettings
         );
+    }
+
+    public static ArrayList<OptionItem> getDefaultOptions(Launcher launcher) {
+        return getOptions(
+                launcher,
+                launcher.getResources().getBoolean(R.bool.config_default_lock_home_screen),
+                LauncherOptionsPopup.getDefaultOrderString());
     }
 
     /**

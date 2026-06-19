@@ -59,7 +59,6 @@ import com.android.launcher3.util.Executors.MAIN_EXECUTOR
 import com.android.launcher3.util.Themes
 import com.android.launcher3.views.ActivityContext
 import com.android.systemui.shared.system.QuickStepContract
-import com.patrykmichalik.opto.core.firstBlocking
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Locale
@@ -177,18 +176,18 @@ val View?.pendingIntent get() = this?.getTag(pendingIntentTagId) as? PendingInte
 
 fun getFolderPreviewAlpha(context: Context): Int {
     val prefs2 = PreferenceManager2.getInstance(context)
-    return (prefs2.folderPreviewBackgroundOpacity.firstBlocking() * 255).toInt()
+    return (prefs2.folderPreviewBackgroundOpacity.defaultValue * 255).toInt()
 }
 
 fun getFolderBackgroundAlpha(context: Context): Int {
     val prefs2 = PreferenceManager2.getInstance(context)
-    return (prefs2.folderBackgroundOpacity.firstBlocking() * 255).toInt()
+    return (prefs2.folderBackgroundOpacity.defaultValue * 255).toInt()
 }
 
 /** Apply Lawnchair custom allapps colour to the provided colour */
 private fun getAllAppsBaseColor(context: Context, defaultColor: Int): Int {
     val prefs2 = PreferenceManager2.getInstance(context)
-    val colorOptions: ColorOption = prefs2.appDrawerBackgroundColor.firstBlocking()
+    val colorOptions: ColorOption = prefs2.appDrawerBackgroundColor.defaultValue
     val color = colorOptions.colorPreferenceEntry.lightColor.invoke(context)
     val baseColor = if (color != 0) color else defaultColor
     return ColorUtils.setAlphaComponent(baseColor, 255)

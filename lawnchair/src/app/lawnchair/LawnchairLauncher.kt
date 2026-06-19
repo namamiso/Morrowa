@@ -536,7 +536,6 @@ class LawnchairLauncher : QuickstepLauncher() {
 
     private fun observeMorrowaPages() {
         morrowaPageController.currentPage
-            .distinctUntilChanged()
             .onEach { page ->
                 syncWorkspaceForMorrowaPage(page)
                 preferenceManager2.morrowaLastPageType.set(page.storedValue)

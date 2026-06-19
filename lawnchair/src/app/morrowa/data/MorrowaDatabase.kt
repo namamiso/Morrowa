@@ -3,7 +3,7 @@ package app.morrowa.data
 import androidx.room.Database
 import androidx.room.Room
 import androidx.room.RoomDatabase
-import com.android.launcher3.util.MainThreadInitializedObject
+import app.lawnchair.util.MainThreadInitializedObject
 
 @Database(
     entities = [

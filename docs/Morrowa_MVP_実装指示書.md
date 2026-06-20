@@ -32,7 +32,12 @@ MVP では、Morrowa を Android ホームランチャーとして起動でき�
 ## 3. 絶対に守る制約
 
 - 完全自作ランチャーにしない
-- Lawnchair の基本ホーム、アプリ一覧、ドック、フォルダ、ウィジェット配置を壊さない
+- Lawnchair の基本ホーム、アプリ一覧、フォルダ、ウィジェット配置を壊さない
+- Morrowa は Dock と QSB を持たない
+- Home 画面は検索バーと Dock を持たない
+- 旧 Dock / QSB 領域は通常 Workspace グリッドに統合し、下部 2 行もアプリ・フォルダ・ウィジェット配置可能にする
+- Hotseat オブジェクトは内部互換用に残すが、表示・操作対象としては使わない
+- 既存 Dock アイテムは MVP では DB に残したまま非表示にし、Dock -> Workspace 下部行 migration は将来タスクにする
 - Home と Widget Blank は Lawnchair の通常ホームページとして扱う
 - Habit と ToDo は Lawnchair 通常ページに混ぜない
 - MVP ではクラウド同期を入れない
@@ -52,10 +57,10 @@ MVP では、Morrowa を Android ホームランチャーとして起動でき�
 - アプリ起動
 - ホーム上のアプリ配置
 - フォルダ
-- ドック
 - 外部ウィジェット配置
 - 基本設定導線
 - ホームからの配置削除
+- Hotseat オブジェクトは内部互換用に残す
 
 ### 4.2 OSS 由来から変更するもの
 
@@ -68,7 +73,14 @@ MVP では、Morrowa を Android ホームランチャーとして起動でき�
 - 透明化してもタップ起動、長押し、アクセシビリティ名は維持する
 - ホームから削除時は Undo を出す
 - Widget Blank を Home と同じ通常ページで、初期状態が空のページとして扱う
-- Home の検索バーは MVP ではコード上から完全削除する
+- Home は検索バーと Dock を持たない
+- Dock / QSB は表示しない
+- Hotseat オブジェクトは高さ 0 とし、表示・操作対象としては使わない
+- 旧 Dock / QSB 領域は通常 Workspace グリッドに統合する
+- 下部 2 行もアプリ・フォルダ・ウィジェット配置可能にする
+- MVP では Hotseat カスタマイズ設定を表示しない
+- 既存 Dock アイテムは DB に残したまま非表示にする
+- Dock -> Workspace 下部行 migration は将来タスクにする
 - Widget Blank ではショートカット配置も許可する
 
 ### 4.3 Morrowa で追加するもの
@@ -196,7 +208,9 @@ Morrowa のページ基盤をどこへ差し込むか決める。
 - Home -> Widget Blank -> ToDo -> Habit -> Home と移動できる
 - Habit / ToDo ではアプリ、フォルダ、ウィジェットを配置できない
 - Home / Widget Blank では通常ページとして配置できる
-- 既存のアプリ起動、ドック、アプリ一覧が壊れていない
+- 既存のアプリ起動、アプリ一覧が壊れていない
+- Home / Widget Blank に Dock と QSB が表示されない
+- Home / Widget Blank の下部 2 行にアプリ、フォルダ、ウィジェットを配置できる
 
 ### Phase 2: 最後にいたページの保存
 
@@ -473,7 +487,8 @@ Launcher DB を変更する必要性が判断されている。
 - アプリ一覧を開ける
 - アプリを起動できる
 - ホームへ戻れる
-- ドックが壊れていない
+- Dock と QSB が表示されない
+- 旧 Dock / QSB 領域の下部 2 行にアプリ、フォルダ、ウィジェットを配置できる
 - 外部ウィジェット配置が壊れていない
 - Home / Widget Blank の通常ページ動作が維持されている
 - Habit / ToDo で配置操作が混入していない
@@ -498,8 +513,14 @@ Launcher DB を変更する必要性が判断されている。
 - Widget Blank は Lawnchair 通常ホームページの2枚目として初期生成する
 - Morrowa の `last_page_type` は Launcher DB ではなく DataStore / SharedPreferences 相当の軽量設定に保存する
 - 透明アイコン状態は原則 Lawnchair DB 側に持たせる。ただし調査で危険なら Morrowa 側に退避する
-- 透明化対象はアプリアイコン、フォルダ、ドック上のアプリアイコン、ドック上のフォルダ
+- 透明化対象は Workspace 上のアプリアイコン、フォルダ
 - ウィジェットと Habit / ToDo 項目は透明化対象外
+- Morrowa は Dock と QSB を持たない
+- Home 画面は検索バーと Dock を持たない
+- Hotseat オブジェクトは内部互換用に残すが、高さ 0 とし、表示・操作対象としては使わない
+- 旧 Dock / QSB 領域は通常 Workspace グリッドに統合し、下部 2 行もアプリ・フォルダ・ウィジェット配置可能にする
+- MVP では Hotseat カスタマイズ設定を表示しない
+- 既存 Dock アイテムは MVP では DB に残したまま非表示。Dock -> Workspace 下部行 migration は将来タスク
 - 透明化済みアイコンは通常時に完全非表示、編集モード中だけ薄く表示する
 - 透明化してもタップ起動は有効
 - 透明化済みアイコンの長押しメニューは `透明解除` と `ホームから削除`
@@ -534,7 +555,8 @@ Launcher DB を変更する必要性が判断されている。
 - Habit 作成時の必須項目は名前と頻度ルール
 - ToDo / Habit のアラーム設定は任意で、作成後に設定してもよい
 - ToDo / Habit の変更は保存ボタンを押すまで確定しない
-- Home の検索バーは MVP ではコード上から完全削除する
+- Home は検索バーと Dock を持たない
+- Dock / QSB は表示しない
 - Widget Blank ではショートカット配置も許可する
 - 設定画面は MVP では最小限にし、細かいカスタマイズ項目を増やさない
 - Dynamic Color やテーマ変更は MVP では採用しない

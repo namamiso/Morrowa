@@ -228,6 +228,7 @@ public class DeviceProfile {
     public int hotseatQsbSpace;
     public int hotseatQsbWidth; // only used when isQsbInline
     public int hotseatBorderSpace;
+    private boolean mIsHotseatEnabled = true;
     // Space required for the bubble bar between the hotseat and the edge of the screen. If there's
     // not enough space, the hotseat will adjust itself for the bubble bar.
     private final int mBubbleBarSpaceThresholdPx;
@@ -884,8 +885,9 @@ public class DeviceProfile {
                     + hotseatBarBottomSpacePx
                     + space;
         }
-        var isHotseatEnabled = PreferenceExtensionsKt.firstBlocking(preferenceManager2.isHotseatEnabled());
-        if (!isHotseatEnabled) {
+        mIsHotseatEnabled = PreferenceExtensionsKt.firstBlocking(
+                preferenceManager2.isHotseatEnabled());
+        if (!mIsHotseatEnabled) {
             hotseatBarSizePx = 0;
         }
     }
@@ -1702,8 +1704,11 @@ public class DeviceProfile {
         } else {
             // Pad the bottom of the workspace with hotseat bar
             // and leave a bit of space in case a widget go all the way down
-            int paddingBottom = hotseatBarSizePx + workspaceBottomPadding - mInsets.bottom;
-            if (!mIsResponsiveGrid) {
+            boolean isHotseatEnabled = mIsHotseatEnabled && hotseatBarSizePx > 0;
+            int paddingBottom = (isHotseatEnabled
+                    ? hotseatBarSizePx + workspaceBottomPadding
+                    : 0) - mInsets.bottom;
+            if (isHotseatEnabled && !mIsResponsiveGrid) {
                 paddingBottom +=
                         workspacePageIndicatorHeight - mWorkspacePageIndicatorOverlapWorkspace;
             }

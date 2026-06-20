@@ -157,6 +157,8 @@ import app.lawnchair.smartspace.model.LawnchairSmartspace;
 import app.lawnchair.smartspace.model.SmartspaceMode;
 import app.lawnchair.theme.drawable.DrawableTokens;
 import app.lawnchair.util.LawnchairUtilsKt;
+import app.morrowa.MorrowaPage;
+import app.morrowa.MorrowaWorkspacePageView;
 
 /**
  * The workspace is a wide area with a wallpaper and a finite number of pages.
@@ -189,6 +191,8 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
     private static final int ADJACENT_SCREEN_DROP_DURATION = 300;
 
     public static final int DEFAULT_PAGE = 0;
+    public static final int MORROWA_HABIT_SCREEN_ID = -301;
+    public static final int MORROWA_TODO_SCREEN_ID = -302;
 
     private int mAllAppsIconSize;
 
@@ -756,6 +760,118 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         return newScreen;
     }
 
+    public void ensureMorrowaWorkspacePages() {
+        ensureWidgetBlankScreen();
+        CellLayout habitScreen = ensureMorrowaScreen(MORROWA_HABIT_SCREEN_ID, MorrowaPage.HABIT);
+        CellLayout todoScreen = ensureMorrowaScreen(MORROWA_TODO_SCREEN_ID, MorrowaPage.TODO);
+        reorderMorrowaScreens(habitScreen, todoScreen);
+        persistCurrentScreenOrderSync();
+    }
+
+    private CellLayout ensureMorrowaScreen(int screenId, MorrowaPage page) {
+        CellLayout screen = mWorkspaceScreens.get(screenId);
+        if (screen == null) {
+            screen = insertNewWorkspaceScreen(screenId, getChildCount());
+        }
+        if (screen.getShortcutsAndWidgets().getChildCount() == 0) {
+            MorrowaWorkspacePageView pageView = new MorrowaWorkspacePageView(getContext(), page);
+            CellLayoutLayoutParams lp = new CellLayoutLayoutParams(0, 0, -1, -1);
+            lp.canReorder = false;
+            if (!screen.addViewToCellLayout(pageView, 0, View.generateViewId(), lp, true)) {
+                Log.e(TAG, "Failed to add Morrowa page " + page + " to CellLayout");
+            }
+        }
+        return screen;
+    }
+
+    private void ensureWidgetBlankScreen() {
+        for (int i = 0; i < mScreenOrder.size(); i++) {
+            int screenId = mScreenOrder.get(i);
+            if (screenId != FIRST_SCREEN_ID && !isMorrowaScreen(screenId)
+                    && !isExtraEmptyScreen(screenId)) {
+                return;
+            }
+        }
+
+        int newScreenId = LauncherAppState.getInstance(getContext())
+                .getModel().getModelDbController().getNewScreenId();
+        while (mWorkspaceScreens.containsKey(newScreenId) || isMorrowaScreen(newScreenId)
+                || isExtraEmptyScreen(newScreenId)) {
+            newScreenId++;
+        }
+        insertNewWorkspaceScreen(newScreenId, getChildCount());
+    }
+
+    private void reorderMorrowaScreens(CellLayout habitScreen, CellLayout todoScreen) {
+        IntArray regularScreens = new IntArray();
+        for (int i = 0; i < mScreenOrder.size(); i++) {
+            int screenId = mScreenOrder.get(i);
+            if (!isMorrowaScreen(screenId) && !isExtraEmptyScreen(screenId)
+                    && !regularScreens.contains(screenId)) {
+                regularScreens.add(screenId);
+            }
+        }
+
+        IntArray reordered = new IntArray();
+        if (regularScreens.contains(FIRST_SCREEN_ID)) {
+            reordered.add(FIRST_SCREEN_ID);
+        }
+        reordered.add(MORROWA_HABIT_SCREEN_ID);
+        reordered.add(MORROWA_TODO_SCREEN_ID);
+        for (int i = 0; i < regularScreens.size(); i++) {
+            int screenId = regularScreens.get(i);
+            if (screenId != FIRST_SCREEN_ID) {
+                reordered.add(screenId);
+            }
+        }
+        for (int i = 0; i < mScreenOrder.size(); i++) {
+            int screenId = mScreenOrder.get(i);
+            if (isExtraEmptyScreen(screenId) && !reordered.contains(screenId)) {
+                reordered.add(screenId);
+            }
+        }
+
+        mScreenOrder.clear();
+        mScreenOrder.addAll(reordered);
+        applyScreenOrderToChildViews();
+    }
+
+    public int getPageIndexForMorrowaPage(MorrowaPage page) {
+        switch (page) {
+            case HOME:
+                return mScreenOrder.indexOf(FIRST_SCREEN_ID);
+            case HABIT:
+                return mScreenOrder.indexOf(MORROWA_HABIT_SCREEN_ID);
+            case TODO:
+                return mScreenOrder.indexOf(MORROWA_TODO_SCREEN_ID);
+            case WIDGET_BLANK:
+                for (int i = 0; i < mScreenOrder.size(); i++) {
+                    int screenId = mScreenOrder.get(i);
+                    if (screenId != FIRST_SCREEN_ID && !isMorrowaScreen(screenId)
+                            && !isExtraEmptyScreen(screenId)) {
+                        return i;
+                    }
+                }
+                return -1;
+            default:
+                return -1;
+        }
+    }
+
+    public MorrowaPage getMorrowaPageForPageIndex(int pageIndex) {
+        int screenId = getScreenIdForPageIndex(pageIndex);
+        if (screenId == FIRST_SCREEN_ID) {
+            return MorrowaPage.HOME;
+        } else if (screenId == MORROWA_HABIT_SCREEN_ID) {
+            return MorrowaPage.HABIT;
+        } else if (screenId == MORROWA_TODO_SCREEN_ID) {
+            return MorrowaPage.TODO;
+        } else if (screenId >= 0) {
+            return MorrowaPage.WIDGET_BLANK;
+        }
+        return null;
+    }
+
     private void addExtraEmptyScreenOnDrag(DragObject dragObject) {
         boolean lastChildOnScreen = false;
         boolean childOnFinalScreen = false;
@@ -1107,6 +1223,9 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         for (int i = 0; i < total; i++) {
             int id = mWorkspaceScreens.keyAt(i);
             CellLayout cl = mWorkspaceScreens.valueAt(i);
+            if (isMorrowaScreen(id)) {
+                continue;
+            }
             // FIRST_SCREEN_ID can never be removed.
             if (shouldPreserveEmptyScreenWhenStripping(
                     id, persistedScreenIds, isExtraEmptyScreen(id))) {
@@ -3288,6 +3407,10 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         return screenId == EXTRA_EMPTY_SCREEN_ID || screenId == EXTRA_EMPTY_SCREEN_SECOND_ID;
     }
 
+    private boolean isMorrowaScreen(int screenId) {
+        return screenId == MORROWA_HABIT_SCREEN_ID || screenId == MORROWA_TODO_SCREEN_ID;
+    }
+
     private boolean isPageGroupMovable(int pageGroupStart) {
         int panelCount = getPanelCount();
         if (pageGroupStart < 0 || pageGroupStart + panelCount > mScreenOrder.size()) {
@@ -3418,7 +3541,7 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         IntArray persistableOrder = new IntArray();
         for (int i = 0; i < mScreenOrder.size(); i++) {
             int screenId = mScreenOrder.get(i);
-            if (!isExtraEmptyScreen(screenId)) {
+            if (!isExtraEmptyScreen(screenId) && !isMorrowaScreen(screenId)) {
                 persistableOrder.add(screenId);
             }
         }

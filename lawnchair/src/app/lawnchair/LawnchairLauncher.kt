@@ -26,7 +26,6 @@ import android.os.Bundle
 import android.util.Pair
 import android.view.Display
 import android.view.View
-import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.window.SplashScreen
 import androidx.core.view.WindowInsetsCompat
@@ -52,10 +51,8 @@ import app.lawnchair.util.getThemedIconPacksInstalled
 import app.lawnchair.util.unsafeLazy
 import app.lawnchair.views.LawnchairFloatingSurfaceView
 import app.morrowa.AlarmScheduler
-import app.morrowa.MorrowaOverlayView
 import app.morrowa.MorrowaPage
 import app.morrowa.MorrowaPageController
-import app.morrowa.MorrowaTouchController
 import app.morrowa.NotificationHelper
 import app.morrowa.data.HabitRepository
 import app.morrowa.data.ToDoRepository
@@ -78,6 +75,7 @@ import com.android.launcher3.uioverrides.states.BackgroundAppState
 import com.android.launcher3.uioverrides.states.OverviewState
 import com.android.launcher3.util.ActivityOptionsWrapper
 import com.android.launcher3.util.Executors
+import com.android.launcher3.util.IntSet
 import com.android.launcher3.util.RunnableList
 import com.android.launcher3.util.SystemUiController.UI_STATE_BASE_WINDOW
 import com.android.launcher3.util.Themes
@@ -105,9 +103,6 @@ class LawnchairLauncher : QuickstepLauncher() {
     private val prefs by unsafeLazy { PreferenceManager.getInstance(this) }
     private val preferenceManager2 by unsafeLazy { PreferenceManager2.getInstance(this) }
     private val morrowaPageController by unsafeLazy { MorrowaPageController(this) }
-    private val morrowaOverlayView by unsafeLazy {
-        MorrowaOverlayView(this, morrowaPageController)
-    }
     private val insetsController: WindowInsetsControllerCompat by lazy {
         val window = launcher.window
             ?: throw Exception("WindowInsetsControllerCompat not available.")
@@ -173,7 +168,6 @@ class LawnchairLauncher : QuickstepLauncher() {
         super.onCreate(savedInstanceState)
         cachedLockHomeScreen = resources.getBoolean(R.bool.config_default_lock_home_screen)
 
-        attachMorrowaOverlay()
         val initialMorrowaPage = consumeMorrowaPageIntent(intent)
         lifecycleScope.launch {
             val page = initialMorrowaPage ?: MorrowaPage.fromStoredValue(
@@ -325,8 +319,7 @@ class LawnchairLauncher : QuickstepLauncher() {
 
     override fun createTouchControllers(): Array<TouchController> {
         val verticalSwipeController = VerticalSwipeTouchController(this, gestureController)
-        val morrowaSwipeController = MorrowaTouchController(this, morrowaPageController)
-        return arrayOf<TouchController>(verticalSwipeController, morrowaSwipeController) + super.createTouchControllers()
+        return arrayOf<TouchController>(verticalSwipeController) + super.createTouchControllers()
     }
 
     override fun handleHomeTap() {
@@ -531,6 +524,11 @@ class LawnchairLauncher : QuickstepLauncher() {
         syncMorrowaPageFromWorkspace()
     }
 
+    override fun finishBindingItems(pagesBoundFirst: IntSet?) {
+        super.finishBindingItems(pagesBoundFirst)
+        syncWorkspaceForMorrowaPage(morrowaPageController.currentPage.value)
+    }
+
     override fun onDestroy() {
         super.onDestroy()
         // Only actually closes if required, safe to call if not enabled
@@ -556,19 +554,6 @@ class LawnchairLauncher : QuickstepLauncher() {
         }
     }
 
-    private fun attachMorrowaOverlay() {
-        if (morrowaOverlayView.parent == null) {
-            dragLayer.addView(
-                morrowaOverlayView,
-                ViewGroup.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                ),
-            )
-        }
-        morrowaOverlayView.bind(lifecycleScope)
-    }
-
     private fun observeMorrowaPages() {
         morrowaPageController.currentPage
             .onEach { page ->
@@ -590,27 +575,14 @@ class LawnchairLauncher : QuickstepLauncher() {
     }
 
     private fun syncMorrowaPageFromWorkspace() {
-        if (morrowaPageController.currentPage.value.isOverlayPage) {
-            return
-        }
-        val page = when (workspace.getNextPage()) {
-            0 -> MorrowaPage.HOME
-            1 -> MorrowaPage.WIDGET_BLANK
-            else -> return
-        }
+        val page = workspace.getMorrowaPageForPageIndex(workspace.getNextPage()) ?: return
         morrowaPageController.setPage(page)
     }
 
     private fun syncWorkspaceForMorrowaPage(page: MorrowaPage) {
-        val workspacePage = when (page) {
-            MorrowaPage.HOME -> 0
-            MorrowaPage.WIDGET_BLANK -> 1
-            MorrowaPage.HABIT,
-            MorrowaPage.TODO,
-            -> return
-        }
+        val workspacePage = workspace.getPageIndexForMorrowaPage(page)
 
-        if (workspacePage >= workspace.getPageCount()) {
+        if (workspacePage < 0 || workspacePage >= workspace.getPageCount()) {
             return
         }
         if (workspace.getNextPage() != workspacePage) {

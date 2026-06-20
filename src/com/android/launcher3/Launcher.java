@@ -2331,6 +2331,7 @@ public class Launcher extends StatefulActivity<LauncherState>
      * Implementation of the method from LauncherModel.Callbacks.
      */
     public void finishBindingItems(IntSet pagesBoundFirst) {
+        mWorkspace.ensureMorrowaWorkspacePages();
         TestEventEmitter.sendEvent(TestEvent.WORKSPACE_FINISH_LOADING);
     }
 

@@ -25,6 +25,7 @@ import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.Menu
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -49,13 +50,22 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import app.morrowa.HabitViewModel
 import app.morrowa.data.HabitEntity
+import java.time.LocalDate
+import java.time.ZoneId
 
-private val HabitBackground = Color(0xFF12253F)
+private val HabitBackground = Color(0xFF111711)
+private val HabitAccent = Color(0xFF78A980)
+private val HabitChip = Color(0xFF9A8465)
 
 @Composable
 fun HabitScreen(viewModel: HabitViewModel) {
     val habits by viewModel.activeHabits.collectAsState()
     val completions by viewModel.completions.collectAsState()
+    val todayHabitDay by viewModel.habitDay.collectAsState()
+    val today = remember(todayHabitDay) {
+        LocalDate.parse(todayHabitDay)
+    }
+    val currentYear = LocalDate.now(ZoneId.of("Asia/Tokyo")).year
     var showAddDialog by remember { mutableStateOf(false) }
     var editingHabit by remember { mutableStateOf<HabitEntity?>(null) }
     var confirmAction by remember { mutableStateOf<ConfirmAction?>(null) }
@@ -66,9 +76,9 @@ fun HabitScreen(viewModel: HabitViewModel) {
 
     MaterialTheme(
         colorScheme = darkColorScheme(
-            primary = Color(0xFF8FD7A3),
-            surface = Color(0xFF1B2F4D),
-            onSurface = Color.White,
+            primary = HabitAccent,
+            surface = Color(0xFF202820),
+            onSurface = Color(0xFFE6E8E1),
         ),
     ) {
         Box(
@@ -76,38 +86,76 @@ fun HabitScreen(viewModel: HabitViewModel) {
                 .fillMaxSize()
                 .background(HabitBackground),
         ) {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .padding(horizontal = 24.dp, vertical = 32.dp),
+                Column(
+                    modifier = Modifier
+                        .fillMaxSize()
+                    .padding(horizontal = 28.dp, vertical = 18.dp),
             ) {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
-                        text = "Habit",
-                        color = Color.White,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
+                        text = "Morrowa",
+                        color = Color(0xFFE6E8E1),
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = { showBackup = true }) {
                         Icon(
                             imageVector = Icons.Rounded.Backup,
                             contentDescription = "バックアップ",
-                            tint = Color.White.copy(alpha = 0.72f),
+                            tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
                         )
                     }
                     IconButton(onClick = { showTrash = true }) {
                         Icon(
                             imageVector = Icons.Rounded.Delete,
                             contentDescription = "ゴミ箱",
-                            tint = Color.White.copy(alpha = 0.72f),
+                            tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(10.dp))
+
+                YearSelector(currentYear = currentYear)
+                Spacer(modifier = Modifier.height(10.dp))
+
+                GrassCalendar(
+                    completedDays = emptySet(),
+                    todayHabitDay = todayHabitDay,
+                    onDayToggle = {},
+                    cellSize = 9.dp,
+                    monthLabelHeight = 12.dp,
+                    cellSpacing = 2.dp,
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        text = "%04d/%02d/%02d（%s）".format(
+                            today.year,
+                            today.monthValue,
+                            today.dayOfMonth,
+                            japaneseDayOfWeek(today),
+                        ),
+                        color = Color(0xFFE6E8E1),
+                        fontSize = 18.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        text = "今日",
+                        color = HabitAccent,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+                Spacer(modifier = Modifier.height(8.dp))
 
                 if (habits.isEmpty()) {
                     Box(
@@ -118,14 +166,14 @@ fun HabitScreen(viewModel: HabitViewModel) {
                     ) {
                         Text(
                             text = "Habit がありません",
-                            color = Color.White.copy(alpha = 0.72f),
+                            color = Color(0xFFE6E8E1).copy(alpha = 0.72f),
                         )
                     }
                 } else {
                     LazyColumn(
                         modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        contentPadding = PaddingValues(bottom = 64.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(
                             items = habits,
@@ -181,7 +229,9 @@ fun HabitScreen(viewModel: HabitViewModel) {
                 onClick = { showAddDialog = true },
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
-                    .padding(horizontal = 24.dp, vertical = 32.dp),
+                    .padding(horizontal = 20.dp, vertical = 18.dp),
+                containerColor = Color(0xFF4F875D),
+                contentColor = Color(0xFFE6E8E1),
             ) {
                 Icon(imageVector = Icons.Rounded.Add, contentDescription = "追加")
             }
@@ -270,6 +320,46 @@ fun HabitScreen(viewModel: HabitViewModel) {
     }
 }
 
+@Composable
+private fun YearSelector(currentYear: Int) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        listOf(currentYear - 1, currentYear, currentYear + 1).forEach { year ->
+            Surface(
+                shape = RoundedCornerShape(10.dp),
+                color = if (year == currentYear) HabitChip else Color.Transparent,
+                border = if (year == currentYear) {
+                    null
+                } else {
+                    BorderStroke(1.dp, Color(0xFFE6E8E1).copy(alpha = 0.58f))
+                },
+            ) {
+                Text(
+                    text = year.toString(),
+                    color = Color(0xFFE6E8E1).copy(alpha = if (year == currentYear) 1f else 0.82f),
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    modifier = Modifier.padding(horizontal = 18.dp, vertical = 6.dp),
+                )
+            }
+        }
+    }
+}
+
+private fun japaneseDayOfWeek(date: LocalDate): String = when (date.dayOfWeek.value) {
+    1 -> "月"
+    2 -> "火"
+    3 -> "水"
+    4 -> "木"
+    5 -> "金"
+    6 -> "土"
+    else -> "日"
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun HabitItem(
@@ -285,57 +375,68 @@ private fun HabitItem(
     var menuExpanded by remember { mutableStateOf(false) }
 
     Box {
-        Surface(
+        Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .padding(vertical = 4.dp)
                 .combinedClickable(
                     onClick = onToggle,
                     onLongClick = { menuExpanded = true },
                 ),
-            shape = RoundedCornerShape(16.dp),
-            color = if (completed) {
-                Color.White.copy(alpha = 0.18f)
-            } else {
-                Color.White.copy(alpha = 0.08f)
-            },
-            border = if (completed) {
-                BorderStroke(1.dp, Color(0xFF8FD7A3).copy(alpha = 0.72f))
-            } else {
-                null
-            },
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Box(
+                modifier = Modifier
+                    .size(32.dp)
+                    .background(Color.Transparent, RoundedCornerShape(3.dp)),
+                contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    text = habit.name,
-                    color = Color.White,
-                    fontSize = 18.sp,
-                    fontWeight = if (completed) FontWeight.SemiBold else FontWeight.Normal,
-                    modifier = Modifier.weight(1f),
-                )
-                Spacer(modifier = Modifier.width(16.dp))
-                IconButton(
-                    onClick = onCalendarClick,
-                    modifier = Modifier.size(40.dp),
+                Surface(
+                    modifier = Modifier.size(30.dp),
+                    shape = RoundedCornerShape(3.dp),
+                    color = Color.Transparent,
+                    border = BorderStroke(
+                        3.dp,
+                        if (completed) HabitAccent else Color(0xFFE6E8E1).copy(alpha = 0.84f),
+                    ),
                 ) {
-                    Icon(
-                        imageVector = Icons.Rounded.CalendarMonth,
-                        contentDescription = "カレンダー",
-                        tint = Color.White.copy(alpha = 0.72f),
-                        modifier = Modifier.size(24.dp),
-                    )
+                    if (completed) {
+                        Icon(
+                            imageVector = Icons.Rounded.Check,
+                            contentDescription = null,
+                            tint = HabitAccent,
+                            modifier = Modifier.padding(5.dp),
+                        )
+                    }
                 }
-                Spacer(modifier = Modifier.width(8.dp))
+            }
+            Spacer(modifier = Modifier.width(14.dp))
+            Text(
+                text = habit.name,
+                color = Color(0xFFE6E8E1),
+                fontSize = 18.sp,
+                fontWeight = if (completed) FontWeight.SemiBold else FontWeight.Normal,
+                modifier = Modifier.weight(1f),
+            )
+            IconButton(
+                onClick = onCalendarClick,
+                modifier = Modifier.size(40.dp),
+            ) {
                 Icon(
-                    imageVector = Icons.Rounded.Check,
-                    contentDescription = null,
-                    tint = if (completed) {
-                        Color(0xFF8FD7A3)
-                    } else {
-                        Color.White.copy(alpha = 0.32f)
-                    },
+                    imageVector = Icons.Rounded.CalendarMonth,
+                    contentDescription = "カレンダー",
+                    tint = Color(0xFFE6E8E1).copy(alpha = 0.38f),
+                    modifier = Modifier.size(22.dp),
+                )
+            }
+            IconButton(
+                onClick = { menuExpanded = true },
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.Menu,
+                    contentDescription = "メニュー",
+                    tint = Color(0xFFE6E8E1).copy(alpha = 0.38f),
                     modifier = Modifier.size(28.dp),
                 )
             }

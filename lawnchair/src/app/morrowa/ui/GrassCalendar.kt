@@ -17,6 +17,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 import java.time.LocalDate
 import java.time.ZoneId
@@ -28,6 +29,9 @@ fun GrassCalendar(
     todayHabitDay: String,
     onDayToggle: (habitDay: String) -> Unit,
     modifier: Modifier = Modifier,
+    cellSize: Dp = 14.dp,
+    monthLabelHeight: Dp = 16.dp,
+    cellSpacing: Dp = 2.dp,
 ) {
     val year = LocalDate.now(ZoneId.of("Asia/Tokyo")).year
     val weeks = remember(year) {
@@ -51,15 +55,15 @@ fun GrassCalendar(
 
     LazyRow(
         modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
+        horizontalArrangement = Arrangement.spacedBy(cellSpacing),
     ) {
         items(weeks) { weekStart ->
             Column(
-                verticalArrangement = Arrangement.spacedBy(2.dp),
+                verticalArrangement = Arrangement.spacedBy(cellSpacing),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Box(
-                    modifier = Modifier.size(width = 14.dp, height = 16.dp),
+                    modifier = Modifier.size(width = cellSize, height = monthLabelHeight),
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     monthLabels[weekStart]?.let { label ->
@@ -81,7 +85,7 @@ fun GrassCalendar(
                         else -> Color(0x40FFFFFF)
                     }
                     val cellModifier = Modifier
-                        .size(14.dp)
+                        .size(cellSize)
                         .clip(RoundedCornerShape(3.dp))
                         .background(color)
                         .let { base ->

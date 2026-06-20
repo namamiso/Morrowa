@@ -10,12 +10,15 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -53,7 +56,8 @@ import app.morrowa.data.HabitEntity
 import java.time.LocalDate
 import java.time.ZoneId
 
-private val HabitBackground = Color(0xFF111711)
+private val HabitBackground = Color.Transparent
+private val HabitPanelBackground = Color(0xCC1A1A1A)
 private val HabitAccent = Color(0xFF78A980)
 private val HabitChip = Color(0xFF9A8465)
 
@@ -77,22 +81,25 @@ fun HabitScreen(viewModel: HabitViewModel) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = HabitAccent,
-            surface = Color(0xFF202820),
+            surface = Color.Transparent,
             onSurface = Color(0xFFE6E8E1),
         ),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(HabitBackground),
+                .windowInsetsPadding(WindowInsets.systemBars),
         ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxSize()
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
                     .padding(horizontal = 28.dp, vertical = 18.dp),
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(HabitPanelBackground, RoundedCornerShape(14.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -126,6 +133,10 @@ fun HabitScreen(viewModel: HabitViewModel) {
                     completedDays = emptySet(),
                     todayHabitDay = todayHabitDay,
                     onDayToggle = {},
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(HabitPanelBackground, RoundedCornerShape(12.dp))
+                        .padding(10.dp),
                     cellSize = 9.dp,
                     monthLabelHeight = 12.dp,
                     cellSpacing = 2.dp,
@@ -133,7 +144,10 @@ fun HabitScreen(viewModel: HabitViewModel) {
                 Spacer(modifier = Modifier.height(12.dp))
 
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(HabitPanelBackground, RoundedCornerShape(12.dp))
+                        .padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -216,7 +230,11 @@ fun HabitScreen(viewModel: HabitViewModel) {
                                         onDayToggle = { day ->
                                             viewModel.toggleCompletionForDay(habit.id, day)
                                         },
-                                        modifier = Modifier.padding(top = 8.dp),
+                                        modifier = Modifier
+                                            .padding(top = 8.dp)
+                                            .fillMaxWidth()
+                                            .background(HabitPanelBackground, RoundedCornerShape(12.dp))
+                                            .padding(10.dp),
                                     )
                                 }
                             }
@@ -230,8 +248,8 @@ fun HabitScreen(viewModel: HabitViewModel) {
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(horizontal = 20.dp, vertical = 18.dp),
-                containerColor = Color(0xFF4F875D),
-                contentColor = Color(0xFFE6E8E1),
+                containerColor = HabitPanelBackground,
+                contentColor = HabitAccent,
             ) {
                 Icon(imageVector = Icons.Rounded.Add, contentDescription = "追加")
             }
@@ -378,11 +396,12 @@ private fun HabitItem(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(vertical = 4.dp)
+                .background(HabitPanelBackground, RoundedCornerShape(12.dp))
                 .combinedClickable(
                     onClick = onToggle,
                     onLongClick = { menuExpanded = true },
-                ),
+                )
+                .padding(horizontal = 12.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(

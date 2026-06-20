@@ -9,11 +9,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -49,7 +52,8 @@ import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
 
-private val ToDoBackground = Color(0xFF1A3B2C)
+private val ToDoBackground = Color.Transparent
+private val ToDoContainerColor = Color(0xCC1A1A1A)
 private val ToDoZoneId = ZoneId.of("Asia/Tokyo")
 
 @Composable
@@ -64,14 +68,14 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
     MaterialTheme(
         colorScheme = darkColorScheme(
             primary = Color(0xFF8FD7A3),
-            surface = Color(0xFF214A38),
+            surface = Color.Transparent,
             onSurface = Color.White,
         ),
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(ToDoBackground),
+                .windowInsetsPadding(WindowInsets.systemBars),
         ) {
             Column(
                 modifier = Modifier
@@ -79,7 +83,10 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
                     .padding(horizontal = 24.dp, vertical = 32.dp),
             ) {
                 Row(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(ToDoContainerColor, RoundedCornerShape(20.dp))
+                        .padding(horizontal = 18.dp, vertical = 14.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
@@ -137,6 +144,8 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
                 modifier = Modifier
                     .align(Alignment.BottomEnd)
                     .padding(horizontal = 24.dp, vertical = 32.dp),
+                containerColor = ToDoContainerColor,
+                contentColor = Color(0xFF8FD7A3),
             ) {
                 Icon(imageVector = Icons.Rounded.Add, contentDescription = "追加")
             }
@@ -240,7 +249,7 @@ private fun ToDoItem(
                     onLongClick = { menuExpanded = true },
                 ),
             shape = RoundedCornerShape(16.dp),
-            color = Color.White.copy(alpha = 0.08f),
+            color = ToDoContainerColor,
         ) {
             Row(
                 modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),

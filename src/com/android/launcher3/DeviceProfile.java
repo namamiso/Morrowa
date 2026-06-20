@@ -1705,9 +1705,9 @@ public class DeviceProfile {
             // Pad the bottom of the workspace with hotseat bar
             // and leave a bit of space in case a widget go all the way down
             boolean isHotseatEnabled = mIsHotseatEnabled && hotseatBarSizePx > 0;
-            int paddingBottom = (isHotseatEnabled
-                    ? hotseatBarSizePx + workspaceBottomPadding
-                    : 0) - mInsets.bottom;
+            int paddingBottom = isHotseatEnabled
+                    ? hotseatBarSizePx + workspaceBottomPadding - mInsets.bottom
+                    : mInsets.bottom;
             if (isHotseatEnabled && !mIsResponsiveGrid) {
                 paddingBottom +=
                         workspacePageIndicatorHeight - mWorkspacePageIndicatorOverlapWorkspace;

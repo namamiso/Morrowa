@@ -18,13 +18,16 @@ data class BackupData(
 
 object MorrowaBackup {
     private const val SCHEMA_VERSION = 1
+    private const val APP_NAME = "Morrowa"
 
     fun serialize(data: BackupData): String {
         val root = JSONObject()
+        val payload = JSONObject()
+        root.put("app", APP_NAME)
         root.put("schema_version", data.schemaVersion)
         root.put("exported_at", data.exportedAt)
 
-        root.put("habits", JSONArray().also { arr ->
+        payload.put("habits", JSONArray().also { arr ->
             data.habits.forEach { h ->
                 arr.put(JSONObject().apply {
                     put("id", h.id)
@@ -39,7 +42,7 @@ object MorrowaBackup {
             }
         })
 
-        root.put("habit_rules", JSONArray().also { arr ->
+        payload.put("habit_rules", JSONArray().also { arr ->
             data.habitRules.forEach { r ->
                 arr.put(JSONObject().apply {
                     put("id", r.id)
@@ -53,7 +56,7 @@ object MorrowaBackup {
             }
         })
 
-        root.put("habit_completions", JSONArray().also { arr ->
+        payload.put("habit_completions", JSONArray().also { arr ->
             data.habitCompletions.forEach { c ->
                 arr.put(JSONObject().apply {
                     put("id", c.id)
@@ -64,7 +67,7 @@ object MorrowaBackup {
             }
         })
 
-        root.put("alarms", JSONArray().also { arr ->
+        payload.put("alarms", JSONArray().also { arr ->
             data.alarms.forEach { a ->
                 arr.put(JSONObject().apply {
                     put("id", a.id)
@@ -79,7 +82,7 @@ object MorrowaBackup {
             }
         })
 
-        root.put("todos", JSONArray().also { arr ->
+        payload.put("todos", JSONArray().also { arr ->
             data.todos.forEach { t ->
                 arr.put(JSONObject().apply {
                     put("id", t.id)
@@ -94,18 +97,24 @@ object MorrowaBackup {
             }
         })
 
+        root.put("data", payload)
         return root.toString(2)
     }
 
     fun deserialize(json: String): BackupData {
         val root = JSONObject(json)
+        val appName = root.optString("app", APP_NAME)
+        require(appName == APP_NAME) {
+            "Unsupported backup app: $appName"
+        }
         val schemaVersion = root.getInt("schema_version")
         require(schemaVersion == SCHEMA_VERSION) {
             "Unsupported backup schema version: $schemaVersion"
         }
         val exportedAt = root.getString("exported_at")
+        val payload = root.optJSONObject("data") ?: root
 
-        val habits = root.getJSONArray("habits").let { arr ->
+        val habits = payload.getJSONArray("habits").let { arr ->
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 HabitEntity(
@@ -121,7 +130,7 @@ object MorrowaBackup {
             }
         }
 
-        val habitRules = root.getJSONArray("habit_rules").let { arr ->
+        val habitRules = payload.getJSONArray("habit_rules").let { arr ->
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 HabitRuleEntity(
@@ -136,7 +145,7 @@ object MorrowaBackup {
             }
         }
 
-        val habitCompletions = root.getJSONArray("habit_completions").let { arr ->
+        val habitCompletions = payload.getJSONArray("habit_completions").let { arr ->
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 HabitCompletionEntity(
@@ -148,7 +157,7 @@ object MorrowaBackup {
             }
         }
 
-        val alarms = root.getJSONArray("alarms").let { arr ->
+        val alarms = payload.getJSONArray("alarms").let { arr ->
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 AlarmEntity(
@@ -164,7 +173,7 @@ object MorrowaBackup {
             }
         }
 
-        val todos = root.getJSONArray("todos").let { arr ->
+        val todos = payload.getJSONArray("todos").let { arr ->
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
                 ToDoEntity(

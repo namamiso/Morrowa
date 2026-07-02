@@ -15,6 +15,8 @@ class AlarmRepository(context: Context) {
 
     suspend fun getEnabledAlarms(): List<AlarmEntity> = dao.getEnabledAlarms()
 
+    suspend fun getAllAlarms(): List<AlarmEntity> = dao.getAllAlarms()
+
     suspend fun setAlarm(targetType: String, targetId: Long, hour: Int, minute: Int) {
         val existing = dao.getAlarm(targetType, targetId)
         if (existing == null) {

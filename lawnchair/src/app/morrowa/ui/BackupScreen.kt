@@ -35,6 +35,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import app.morrowa.AlarmScheduler
+import app.morrowa.MorrowaAlarmRescheduler
+import app.morrowa.data.AlarmRepository
 import app.morrowa.data.BackupRepository
 import app.morrowa.data.MorrowaBackup
 import java.time.LocalDate
@@ -196,7 +199,13 @@ fun BackupScreen(
                         }
                         val data = MorrowaBackup.deserialize(json)
                         val repo = BackupRepository(context)
-                        withContext(Dispatchers.IO) { repo.importAll(data) }
+                        withContext(Dispatchers.IO) {
+                            val oldAlarms = AlarmRepository(context).getAllAlarms()
+                            repo.importAll(data)
+                            MorrowaAlarmRescheduler.cancelAlarms(context, oldAlarms)
+                            AlarmScheduler.cancelIncompleteHabitNotification(context)
+                            MorrowaAlarmRescheduler.rescheduleAll(context)
+                        }
                     }.onSuccess {
                         statusMessage = "インポートしました"
                     }.onFailure {

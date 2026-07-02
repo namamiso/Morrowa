@@ -569,3 +569,133 @@ git diff --check -- src/com/android/launcher3/PagedView.java src/com/android/lau
 - アニメーション中にタップ / 中断しても `translationX` が残らない。
 - ページインジケータと壁紙パララックスが wrap 中に破綻しない。
 - Morrowa の Home / Habit / ToDo / Widget Blank のページ順と復帰挙動が崩れない。
+
+### 9.4 追加検証
+
+2026-07-02 に compile 検証を再実行した。
+
+事前対応:
+
+- `platform_frameworks_libs_systemui` submodule が未初期化だったため、`git submodule update --init --recursive` を実行した。
+- `local.properties` が存在しなかったため、Android SDK path を `C:\Users\hanpe\AppData\Local\Android\Sdk` に設定した。
+- デフォルトの Java 25 では `source release 21` 周辺で Java compile が失敗したため、Android Studio 同梱 JBR `C:\Program Files\Android\Android Studio\jbr` の OpenJDK 21.0.8 を `JAVA_HOME` として使用した。
+- SDK Build-Tools 37.0.0 と Android SDK Platform 37.0 は Gradle 実行中に自動インストールされた。
+
+実行コマンド:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugKotlin compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果:
+
+- `BUILD SUCCESSFUL`
+- `403 actionable tasks: 171 executed, 232 up-to-date`
+
+補足:
+
+- Kotlin / Java の deprecated API や annotation target に関する warning は出ているが、compile は成功している。
+- 実機での wrap アニメーション確認は未実施。
+
+---
+
+## 10. 2026-07-02 作業履歴: JSON backup 形式の仕様整合
+
+### 10.1 背景
+
+Morrowa の JSON export / import 実装は存在していたが、出力 JSON が仕様書の外形とずれていた。
+
+仕様書では次のメタ情報をトップレベルに持ち、実データを `data` 配下に置く方針である。
+
+```json
+{
+  "app": "Morrowa",
+  "schema_version": 1,
+  "exported_at": "2026-06-02T00:00:00+09:00",
+  "data": {}
+}
+```
+
+従来実装では `schema_version` と `exported_at` はあったが、`app` と `data` ラッパーがなく、`habits` / `todos` / `alarms` などがトップレベルに直接置かれていた。
+
+### 10.2 実装内容
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/morrowa/data/MorrowaBackup.kt` | export JSON に `app: "Morrowa"` と `data` ラッパーを追加 |
+
+実装方針:
+
+- 新規 export は仕様書に合わせて `app` / `schema_version` / `exported_at` / `data` を出力する。
+- `data` 配下に `habits` / `habit_rules` / `habit_completions` / `alarms` / `todos` を置く。
+- import は新形式を優先して読む。
+- 既に出力済みの旧形式 JSON も `data` がない場合は従来通り読めるようにした。
+- `app` が存在しない旧形式は Morrowa とみなす。
+- `app` が存在し、`Morrowa` 以外なら import を拒否する。
+
+### 10.3 検証状況
+
+実行済み:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugKotlin --console=plain
+```
+
+結果:
+
+- `BUILD SUCCESSFUL`
+- `401 actionable tasks: 2 executed, 399 up-to-date`
+
+---
+
+## 11. 2026-07-02 作業履歴: JSON import 後のアラーム再登録
+
+### 11.1 背景
+
+JSON import は DB の全置換には対応していたが、仕様書の「Android の system alarm id は端末依存のため、インポート後に再スケジュールする」に対する実装が不足していた。
+
+また、全置換前に既存の `PendingIntent` をキャンセルしないと、import 後に存在しない ToDo / Habit の古い通知が残る可能性があった。
+
+### 11.2 実装内容
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/morrowa/MorrowaAlarmRescheduler.kt` | DB 上の既存アラームの一括キャンセル / 有効アラームの一括再登録 helper を追加 |
+| `lawnchair/src/app/morrowa/MorrowaBootReceiver.kt` | boot 時の再登録処理を helper 利用へ整理 |
+| `lawnchair/src/app/morrowa/ui/BackupScreen.kt` | import 時に旧アラーム一覧を退避 -> DB 全置換 -> 旧 PendingIntent cancel -> import 後アラーム再登録を実行 |
+
+実装方針:
+
+- `MorrowaAlarmRescheduler.cancelAll()` で現在 DB 上の全アラームと未達習慣通知をキャンセルする。
+- import では、旧 DB 上の全アラームを import 前に退避する。
+- `BackupRepository.importAll()` で DB を全置換する。
+- import 成功後に退避済みの旧アラームから `PendingIntent` をキャンセルし、import 失敗時は既存アラームを消さない。
+- `MorrowaAlarmRescheduler.rescheduleAll()` で import 後 DB の有効アラームと未達習慣通知を登録する。
+- BootReceiver と import 後再登録で同じ helper を使い、再登録ロジックの重複を避ける。
+
+### 11.3 検証状況
+
+実行済み:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugKotlin --console=plain
+```
+
+結果:
+
+- `BUILD SUCCESSFUL`
+- `401 actionable tasks: 2 executed, 399 up-to-date`
+
+補足:
+
+- `BackupScreen.kt` の既存 `Icons.Rounded.ArrowBack` と `Divider` に deprecated warning が出ているが、コンパイルは成功している。

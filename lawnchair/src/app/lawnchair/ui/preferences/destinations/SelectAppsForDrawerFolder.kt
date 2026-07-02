@@ -165,10 +165,10 @@ private fun PositionalAppListPreference(
         items = items,
         activeCount = activeCount,
         onOrderChange = onOrderChange,
-        itemContent = { app, dragHandle, toggle ->
+        itemContent = { app, dragHandle, toggle, toggleStatus ->
             AppItem(
                 app = app,
-                onClick = {},
+                onClick = { toggleStatus() },
                 widget = dragHandle,
                 endWidget = toggle,
             )
@@ -188,12 +188,12 @@ private fun updateViewModel(
     folderId: Int,
     title: String,
 ) {
-    val activePackageNames = PositionalMapper.getEnabledKeys(newList, newCount).toSet()
+    val activeKeys = PositionalMapper.getEnabledKeys(newList, newCount)
 
-    val newSelection = activePackageNames.mapNotNull { keyString ->
+    val newSelection = activeKeys.mapNotNull { keyString ->
         val app = apps.find { it.key.toString() == keyString }
         app?.toAppInfo(context)?.apply {
-            rank = activePackageNames.indexOf(keyString)
+            rank = activeKeys.indexOf(keyString)
         }
     }
 

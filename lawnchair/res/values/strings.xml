@@ -131,6 +131,8 @@
     <string name="app_drawer_folder_settings">Drawer folder</string>
     <string name="add_folder">Create folder</string>
     <string name="edit_folder">Edit folder</string>
+    <string name="delete_folder_confirmation_title">Delete folder?</string>
+    <string name="delete_folder_confirmation_message">"%1$s" will be removed from the app drawer. Apps in this folder will not be uninstalled.</string>
     <string name="add_label">Add</string>
     <string name="edit_label">Edit</string>
     <string name="apply_label">Apply</string>

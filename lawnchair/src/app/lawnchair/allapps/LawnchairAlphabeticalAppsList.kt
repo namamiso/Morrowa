@@ -46,8 +46,6 @@ class LawnchairAlphabeticalAppsList<T>(
     private var folderList = mutableListOf<FolderInfo>()
     private val filteredList = mutableListOf<AppInfo>()
 
-    private val folderOrder = FolderOrderUtils.stringToIntList(prefs.drawerListOrder.get())
-
     init {
         context.launcher.deviceProfile.inv.addOnChangeListener(this)
         (context as? LifecycleOwner)?.lifecycle?.addObserver(this)
@@ -68,11 +66,18 @@ class LawnchairAlphabeticalAppsList<T>(
 
     private fun observeFolders() {
         viewModel.foldersLiveData.observe(context as LifecycleOwner) { folders ->
-            folderList = folders
-                .sortedBy { folderOrder.indexOf(it.id) }
-                .toMutableList()
+            folderList = folders.toMutableList()
             updateAdapterItems()
         }
+    }
+
+    private fun getSortedFolders(): List<FolderInfo> {
+        val folderOrder = FolderOrderUtils.stringToIntList(prefs.drawerListOrder.get())
+        return folderList.sortedWith(
+            compareBy { folder ->
+                folderOrder.indexOf(folder.id).takeIf { it != -1 } ?: Int.MAX_VALUE
+            },
+        )
     }
 
     override fun updateItemFilter(itemFilter: Predicate<ItemInfo>?) {
@@ -110,19 +115,20 @@ class LawnchairAlphabeticalAppsList<T>(
                 position++
             }
         } else {
-            folderList.forEach { folder ->
-                if (folder.getContents().size > 1) {
+            getSortedFolders().forEach { folder ->
+                val folderApps = folder.getContents().mapNotNull { app ->
+                    appsStore.getApp(app.componentKey)
+                }
+                if (folderApps.size > 1) {
                     val folderInfo = FolderInfo()
                     folderInfo.title = folder.title
                     mAdapterItems.add(AdapterItem.asFolder(folderInfo))
-                    folder.getContents().forEach { app ->
-                        (appsStore.getApp(app.componentKey) as? AppInfo)?.let {
-                            folderInfo.add(it)
-                            if (prefs.folderApps.get()) filteredList.add(it)
-                        }
+                    folderApps.forEach { app ->
+                        folderInfo.add(app)
+                        if (prefs.folderApps.get()) filteredList.add(app)
                     }
+                    position++
                 }
-                position++
             }
             val remainingApps = appList.filterNot { app -> filteredList.contains(app) && prefs.folderApps.get() }
             position = super.addAppsWithSections(remainingApps, position)

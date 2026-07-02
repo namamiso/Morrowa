@@ -166,7 +166,7 @@ object PositionalMapper {
  * @param onOrderChange Callback triggered when an item is moved or toggled. Provides the new
  * full list and the updated count of active items.
  * @param itemContent The UI for an individual item. Provides a `dragHandle` for reordering
- * and a `toggle` for switching status without dragging.
+ * and a `toggle` / `toggleStatus` for switching status without dragging.
  * @param labelSelector Used to sort the inactive section alphabetically when an item is disabled.
  * @param contentPadding Padding applied to the inner [PreferenceLazyColumn].
  */
@@ -179,6 +179,7 @@ fun <T> PositionalReorderer(
         item: T,
         dragHandle: @Composable () -> Unit,
         toggle: @Composable () -> Unit,
+        toggleStatus: () -> Unit,
     ) -> Unit,
     labelSelector: (T) -> String,
     contentPadding: PaddingValues,
@@ -320,7 +321,7 @@ fun <T> PositionalReorderer(
                             makeActive,
                             labelSelector,
                         )
-                        onOrderChange(newList, newCount)
+                        updateState(newList, newCount)
                     },
                     isFirst = index == if (isActive) 0 else localActiveCount,
                     isLast = index == (if (isActive) localActiveCount else localItems.size) - 1,
@@ -390,6 +391,7 @@ private fun <T> ReorderableCollectionItemScope.ReorderableItemContainer(
         item: T,
         dragHandle: @Composable () -> Unit,
         toggle: @Composable () -> Unit,
+        toggleStatus: () -> Unit,
     ) -> Unit,
 ) {
     var isSelfDragging by remember { mutableStateOf(false) }
@@ -414,6 +416,8 @@ private fun <T> ReorderableCollectionItemScope.ReorderableItemContainer(
             .padding(horizontal = 16.dp)
             .clip(shape),
     ) {
+        val toggleStatus = { onActiveChange(!active) }
+
         Column {
             content(
                 item.data,
@@ -426,7 +430,7 @@ private fun <T> ReorderableCollectionItemScope.ReorderableItemContainer(
                 },
                 {
                     IconButton(
-                        onClick = { onActiveChange(!active) },
+                        onClick = toggleStatus,
                     ) {
                         Icon(
                             imageVector = if (active) Icons.Rounded.Remove else Icons.Rounded.Add,
@@ -434,6 +438,7 @@ private fun <T> ReorderableCollectionItemScope.ReorderableItemContainer(
                         )
                     }
                 },
+                toggleStatus,
             )
             if (!isSelfDragging && !isLast) PreferenceDivider(startIndent = 40.dp)
         }

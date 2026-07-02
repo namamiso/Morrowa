@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
@@ -22,6 +23,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.ripple
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -124,6 +126,7 @@ fun AppDrawerFoldersPreference(
     val folderOrderAdapter = prefs.drawerListOrder.getAdapter()
 
     val folderOrderString by folderOrderAdapter.state
+    var folderPendingDelete by remember { mutableStateOf<FolderInfo?>(null) }
 
     var sortedDisplayList = remember(folders, folderOrderString) {
         Log.d("AppDrawerFolders", "Recalculating sortedDisplayList. Folders count: ${folders.size}")
@@ -228,16 +231,7 @@ fun AppDrawerFoldersPreference(
                         }
                     },
                     onItemDelete = { folderToDelete ->
-                        val currentOrder =
-                            FolderOrderUtils.stringToIntList(folderOrderAdapter.state.value)
-                        val newOrderAfterDelete =
-                            currentOrder.filter { it != folderToDelete.id }
-                        folderOrderAdapter.onChange(
-                            FolderOrderUtils.intListToString(
-                                newOrderAfterDelete,
-                            ),
-                        )
-                        onDeleteFolder(folderToDelete)
+                        folderPendingDelete = folderToDelete
                     },
                     dragIndicator = {
                         ReorderableDragHandle(
@@ -253,6 +247,42 @@ fun AppDrawerFoldersPreference(
             }
         }
     }
+
+    folderPendingDelete?.let { folderToDelete ->
+        AlertDialog(
+            onDismissRequest = { folderPendingDelete = null },
+            title = {
+                Text(stringResource(R.string.delete_folder_confirmation_title))
+            },
+            text = {
+                Text(stringResource(R.string.delete_folder_confirmation_message, folderToDelete.title.toString()))
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val currentOrder =
+                            FolderOrderUtils.stringToIntList(folderOrderAdapter.state.value)
+                        val newOrderAfterDelete =
+                            currentOrder.filter { it != folderToDelete.id }
+                        folderOrderAdapter.onChange(
+                            FolderOrderUtils.intListToString(
+                                newOrderAfterDelete,
+                            ),
+                        )
+                        onDeleteFolder(folderToDelete)
+                        folderPendingDelete = null
+                    },
+                ) {
+                    Text(stringResource(R.string.action_delete))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { folderPendingDelete = null }) {
+                    Text(stringResource(android.R.string.cancel))
+                }
+            },
+        )
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -267,6 +297,7 @@ fun FolderEditSheet(
 ) {
     val resources = LocalContext.current.resources
     var textFieldValue by remember { mutableStateOf(TextFieldValue(folderInfo.title.toString())) }
+    val trimmedTitle = textFieldValue.text.trim()
 
     ModalBottomSheetContent(
         buttons = {
@@ -279,9 +310,10 @@ fun FolderEditSheet(
             Spacer(Modifier.width(8.dp))
             Button(
                 onClick = {
-                    onRename(folderInfo, textFieldValue.text)
+                    onRename(folderInfo, trimmedTitle)
                     onDismiss()
                 },
+                enabled = trimmedTitle.isNotEmpty(),
                 shapes = ButtonDefaults.shapes(),
             ) {
                 Text(stringResource(android.R.string.ok))
@@ -300,7 +332,7 @@ fun FolderEditSheet(
                     .padding(horizontal = 16.dp)
                     .fillMaxWidth(),
                 singleLine = true,
-                isError = textFieldValue.text.isEmpty(),
+                isError = trimmedTitle.isEmpty(),
             )
             if (!hideAppPicker) {
                 ClickablePreference(

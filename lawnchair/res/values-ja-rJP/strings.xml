@@ -108,6 +108,8 @@
     <string name="app_drawer_folder_settings">ドロワーフォルダー</string>
     <string name="add_folder">フォルダーを作成する</string>
     <string name="edit_folder">フォルダーを編集する</string>
+    <string name="delete_folder_confirmation_title">フォルダーを削除しますか？</string>
+    <string name="delete_folder_confirmation_message">「%1$s」をアプリドロワーから削除します。フォルダー内のアプリはアンインストールされません。</string>
     <string name="add_label">追加</string>
     <string name="edit_label">編集</string>
     <string name="apply_label">適用</string>

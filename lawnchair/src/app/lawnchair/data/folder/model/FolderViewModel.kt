@@ -53,8 +53,8 @@ class FolderViewModel(
     fun renameFolder(folderInfo: FolderInfo, hide: Boolean) {
         viewModelScope.launch {
             repository.updateFolderInfo(folderInfo, hide)
+            reloadHelper.reloadGrid()
         }
-        reloadHelper.reloadGrid()
     }
 
     fun updateFolderItems(id: Int, title: String, appInfo: List<AppInfo>) {
@@ -71,14 +71,15 @@ class FolderViewModel(
     fun createFolder(folderInfo: FolderInfo) {
         viewModelScope.launch {
             repository.saveFolderInfo(folderInfo)
+            reloadHelper.reloadGrid()
         }
     }
 
     fun deleteFolder(id: Int) {
         viewModelScope.launch {
             repository.deleteFolderInfo(id)
+            reloadHelper.reloadGrid()
         }
-        reloadHelper.reloadGrid()
     }
 }
 

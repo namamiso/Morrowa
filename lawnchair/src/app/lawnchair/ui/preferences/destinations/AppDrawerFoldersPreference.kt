@@ -304,7 +304,7 @@ fun FolderEditSheet(
             )
             if (!hideAppPicker) {
                 ClickablePreference(
-                    label = "Manage apps",
+                    label = stringResource(R.string.manage_apps),
                     subtitle = resources.getQuantityString(
                         R.plurals.apps_count,
                         folderInfo.getContents().size,
@@ -353,7 +353,11 @@ fun FolderItem(
                     },
                     shapes = IconButtonDefaults.shapes(),
                 ) {
-                    Icon(Icons.Rounded.Delete, contentDescription = "Delete", tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Icon(
+                        Icons.Rounded.Delete,
+                        contentDescription = stringResource(R.string.action_delete),
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                 }
             }
         },

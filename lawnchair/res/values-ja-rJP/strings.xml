@@ -104,6 +104,7 @@
     <string name="app_drawer_folder">アプリドロワーのフォルダー</string>
     <string name="selected_apps">選択したアプリ</string>
     <string name="add_apps">アプリを追加</string>
+    <string name="manage_apps">アプリを管理</string>
     <string name="app_drawer_folder_settings">ドロワーフォルダー</string>
     <string name="add_folder">フォルダーを作成する</string>
     <string name="edit_folder">フォルダーを編集する</string>

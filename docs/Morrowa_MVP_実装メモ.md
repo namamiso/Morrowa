@@ -465,6 +465,34 @@ Lawnchair.16.Dev.(fabeccf).github.debug.apk
 
 - 実機で Habit / ToDo が上下につぶれず全画面表示になることの確認。
 
+### 8.4 追加調整
+
+実機確認で、Habit / ToDo 画面にまだ上下の余白が残っていたため追加修正した。
+
+原因:
+
+- `HabitScreen` / `ToDoScreen` の外側 `Box` に `windowInsetsPadding(WindowInsets.systemBars)` が残っていた。
+- 画面全体の `Column` に `vertical` padding が入っていた。
+
+対応:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/morrowa/ui/HabitScreen.kt` | 外側の system bars inset と縦 padding を削除し、画面タイトルを `Morrowa` から `Habit` に変更 |
+| `lawnchair/src/app/morrowa/ui/ToDoScreen.kt` | 外側の system bars inset と縦 padding を削除 |
+
+検証:
+
+```powershell
+.\gradlew.bat compileLawnWithQuickstepGithubDebugKotlin
+.\gradlew.bat installLawnWithQuickstepGithubDebug
+```
+
+結果:
+
+- `BUILD SUCCESSFUL`
+- 実機 `R5CT3378XTJ / SC-52C - 16` への install 成功
+
 ---
 
 ## 9. 2026-07-02 作業履歴: 無限スクロール wrap アニメーション修正

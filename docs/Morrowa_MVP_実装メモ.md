@@ -548,14 +548,14 @@ git diff --check -- src/com/android/launcher3/PagedView.java src/com/android/lau
 
 - `git diff --check` は通過。
 
-ビルド確認:
+ビルド確認（初回）:
 
 - `.\gradlew.bat assembleDebug` は `.gradle` の lock file アクセスで一度失敗した。
 - 権限付きで `.\gradlew.bat assembleDebug` を再実行したが、2 分 / 5 分の timeout で完了しなかった。
 - `.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain` も timeout。
 - その後、ログ出力付きで `compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain --stacktrace --no-daemon` を実行したが、`compileLawnWithQuickstepGithubDebugKotlin` で 10 分以上停止したため、こちらで起動した Gradle / Java プロセスを停止した。
 
-未完了:
+未完了（初回時点）:
 
 - Gradle ビルド完了確認。
 - 実機での wrap アニメーション確認。
@@ -598,6 +598,28 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 
 - Kotlin / Java の deprecated API や annotation target に関する warning は出ているが、compile は成功している。
 - 実機での wrap アニメーション確認は未実施。
+
+### 9.5 追加検証: assembleDebug 完了
+
+2026-07-02 に `assembleDebug` の完了確認を再実行した。
+
+実行コマンド:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat assembleDebug --console=plain
+```
+
+結果:
+
+- `BUILD SUCCESSFUL`
+- deprecated API / unchecked operation の warning は出ているが、ビルドは成功。
+
+残る確認:
+
+- 実機での wrap アニメーション確認は、端末接続と操作確認が必要なため未実施。
+- ローカルで可能な compile / assemble 検証は完了。
 
 ---
 

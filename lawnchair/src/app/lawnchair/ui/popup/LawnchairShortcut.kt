@@ -21,7 +21,9 @@ import app.lawnchair.LawnchairLauncher
 import app.lawnchair.override.CustomizeAppDialog
 import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.views.ComposeBottomSheet
+import app.morrowa.MorrowaTransparentItemController
 import com.android.launcher3.AbstractFloatingView
+import com.android.launcher3.LauncherState
 import com.android.launcher3.LauncherSettings.Favorites.ITEM_TYPE_APPLICATION
 import com.android.launcher3.LauncherSettings.Favorites.ITEM_TYPE_TASK
 import com.android.launcher3.R
@@ -89,6 +91,44 @@ class LawnchairShortcut {
             }
 
             PauseApps(activity, itemInfo, originalView)
+        }
+
+        val TRANSPARENT_TOGGLE: SystemShortcut.Factory<LawnchairLauncher> =
+            SystemShortcut.Factory { activity, itemInfo, originalView ->
+                if (PreferenceManager2.getInstance(activity).lockHomeScreen.firstBlocking()) {
+                    return@Factory null
+                }
+                if (!MorrowaTransparentItemController.isSupported(itemInfo)) {
+                    return@Factory null
+                }
+                TransparentToggle(activity, itemInfo, originalView)
+            }
+    }
+
+    class TransparentToggle(
+        private val launcher: LawnchairLauncher,
+        itemInfo: ItemInfo,
+        originalView: View,
+    ) : SystemShortcut<LawnchairLauncher>(
+        R.drawable.ic_visibility,
+        if (MorrowaTransparentItemController.isTransparent(launcher, itemInfo)) {
+            R.string.morrowa_transparent_item_disable
+        } else {
+            R.string.morrowa_transparent_item_enable
+        },
+        launcher,
+        itemInfo,
+        originalView,
+        false,
+    ) {
+        override fun onClick(view: View) {
+            val newValue = !MorrowaTransparentItemController.isTransparent(launcher, mItemInfo)
+            MorrowaTransparentItemController.setTransparent(launcher, mItemInfo, newValue)
+            MorrowaTransparentItemController.applyToWorkspace(
+                launcher.workspace,
+                launcher.isInState(LauncherState.EDIT_MODE),
+            )
+            AbstractFloatingView.closeAllOpenViews(launcher)
         }
     }
 

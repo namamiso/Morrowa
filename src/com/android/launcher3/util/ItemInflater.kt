@@ -23,8 +23,11 @@ import android.view.View
 import android.view.View.OnClickListener
 import android.view.View.OnFocusChangeListener
 import android.view.ViewGroup
+import app.morrowa.MorrowaTransparentItemController
 import com.android.launcher3.BubbleTextView
+import com.android.launcher3.Launcher
 import com.android.launcher3.LauncherAppState
+import com.android.launcher3.LauncherState
 import com.android.launcher3.LauncherSettings.Favorites
 import com.android.launcher3.R
 import com.android.launcher3.apppairs.AppPairIcon
@@ -83,7 +86,14 @@ class ItemInflater<T>(
                         parent,
                         item as FolderInfo,
                     )
-                    .apply { onFocusChangeListener = focusListener }
+                    .apply {
+                        onFocusChangeListener = focusListener
+                        MorrowaTransparentItemController.applyToView(
+                            this,
+                            item,
+                            context.isMorrowaEditMode(),
+                        )
+                    }
             Favorites.ITEM_TYPE_APP_PAIR ->
                 return AppPairIcon.inflateIcon(
                     R.layout.app_pair_icon,
@@ -116,10 +126,18 @@ class ItemInflater<T>(
         favorite.applyFromWorkspaceItem(info)
         favorite.setOnClickListener(clickListener)
         favorite.onFocusChangeListener = focusListener
+        MorrowaTransparentItemController.applyToView(
+            favorite,
+            info,
+            context.isMorrowaEditMode(),
+        )
 
         if (container == Favorites.CONTAINER_HOTSEAT_PREDICTION) favorite.verifyHighRes()
         return favorite
     }
+
+    private fun Context.isMorrowaEditMode(): Boolean =
+        (this as? Launcher)?.isInState(LauncherState.EDIT_MODE) == true
 
     private fun inflateAppWidget(item: LauncherAppWidgetInfo, writer: ModelWriter): View? {
         TraceHelper.INSTANCE.beginSection("BIND_WIDGET_id=" + item.appWidgetId)

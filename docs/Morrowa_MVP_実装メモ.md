@@ -236,3 +236,169 @@ Widget Blank は通常 Workspace ページとして扱う方針なので、既�
 Phase 1 は `Workspace` / `PagedView` / launcher DB を直接変えず、`LawnchairLauncher` 上の Morrowa overlay と `PreferenceManager2` の `morrowa_last_page_type` 追加から始める。
 
 この進め方なら、Home / Widget Blank は既存 Lawnchair Workspace として維持し、Habit / ToDo だけを Morrowa 専用画面として切り出せる。MVP の価値に近い部分を小さく実装しつつ、ドック、アプリ一覧、アプリ起動、ウィジェット配置への副作用を最小化できる。
+
+---
+
+## 7. 2026-07-02 作業履歴: 透明化 MVP
+
+### 7.1 背景
+
+Home 画面仕様のうち、Workspace 上のアプリアイコン / フォルダを透明化する MVP が未実装だったため実装に着手した。
+
+仕様上の対象:
+
+- Workspace 上のアプリアイコン
+- Workspace 上のフォルダ
+
+対象外:
+
+- ウィジェット
+- Habit / ToDo 項目
+- Hotseat / Dock
+- All Apps
+
+仕様上、透明化済みアイコンは通常時には見えないが、タップ起動、長押し、アクセシビリティ名、配置情報は維持する。編集モード中は薄く見える状態にする。
+
+### 7.2 実装内容
+
+追加 / 変更した主なファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/morrowa/MorrowaTransparentItemController.kt` | 透明化状態の保存、対象判定、View への alpha 適用、Workspace 一括適用を担当 |
+| `lawnchair/src/app/lawnchair/ui/popup/LawnchairShortcut.kt` | 長押しメニューに `透明化` / `透明解除` の SystemShortcut を追加 |
+| `lawnchair/src/app/lawnchair/LawnchairLauncher.kt` | shortcut 登録、bind 完了時 / state 遷移後の透明化再適用 |
+| `src/com/android/launcher3/util/ItemInflater.kt` | アイコン / フォルダ inflate 時に透明化状態を初期反映 |
+| `src/com/android/launcher3/Workspace.java` | `mapOverCellLayouts()` の null / tag 型チェックを追加 |
+| `res/values/strings.xml` | 英語 fallback 文字列を追加 |
+| `res/values-ja/strings.xml` | 日本語文字列を追加 |
+
+保存方式:
+
+- Launcher DB (`favorites`) は変更しない。
+- Morrowa 側の `SharedPreferences` (`morrowa_transparent_items`) に `StringSet` として保存する。
+- アプリアイコンは `app:<user>:<component>` をキーにする。
+- フォルダは component が存在しないため `item:<favorites id>` を fallback キーにする。
+
+この判断の理由:
+
+- アイコン描画 / bind 中に同期的な判定が必要であり、Room / Flow を挟むと初期差分として影響が大きい。
+- Launcher DB migration を増やさず、既存配置 DB への副作用を避けられる。
+- アプリは再インストールや DB row id 変化に比較的強い component key にできる。
+- フォルダは安定した外部 component がないため、MVP では row id fallback とした。
+
+### 7.3 レビュー反映
+
+初回実装後、以下のレビュー指摘を受けて修正した。
+
+| 指摘 | 対応 |
+|---|---|
+| `applyToView()` が `view.visibility = View.VISIBLE` を無条件に設定し、ドラッグ元アイコンを復活させうる | `visibility` の上書きを削除 |
+| `applyToView()` が `isClickable` / `isLongClickable` を無条件に設定していた | clickable / longClickable の上書きを削除 |
+| `Workspace` の item 走査で `getChildAt()` null の可能性がある | `mapOverCellLayouts()` に null / tag 型チェックを追加 |
+| inflate 時に `editMode=false` 固定だった | `ItemInflater` で `LauncherState.EDIT_MODE` を見て初期適用するよう修正 |
+| item ごとに `SharedPreferences#getStringSet()` を読む | `applyToWorkspace()` で一度だけ読み、各 item に渡すよう修正 |
+| Workspace に Morrowa 固有メソッドを追加していた | `Workspace.applyMorrowaTransparentItems()` を削除し、`MorrowaTransparentItemController.applyToWorkspace()` に移動 |
+| default `strings.xml` に日本語が入っていた | default は英語、`values-ja` に日本語を追加 |
+
+補足:
+
+- 「透明アイコンが空きセルのタッチを横取りする」点は、仕様の「透明化してもタップ起動、長押しを維持する」と衝突するため、透明化中の touch 無効化は行っていない。
+- ただし、無条件に clickable / longClickable を強制する処理は削除した。
+
+### 7.4 現在の挙動
+
+期待される MVP 挙動:
+
+- Workspace 上のアプリアイコン / フォルダを長押しすると `透明化` が出る。
+- 透明化済みの対象では `透明解除` が出る。
+- 透明化すると通常時は `alpha=0f` になる。
+- View 自体は残るため、タップ起動と長押し操作は維持される。
+- 編集モード中は `alpha=0.28f` で薄く見える。
+- bind 完了時と Launcher state 遷移後に透明化状態が再適用される。
+
+### 7.5 検証状況
+
+実行できた検証:
+
+- `git diff --check` は通過。
+- JDK は `C:\Program Files\Eclipse Adoptium\jdk-21.0.11.10-hotspot` を使用できることを確認。
+- 不足していた submodule `platform_frameworks_libs_systemui` は `git submodule update --init --recursive` で取得済み。
+- `local.properties` を作成し、SDK path を `C:\Users\hanpe\AppData\Local\Android\Sdk` に設定した。
+- `.\gradlew.bat tasks --all` は通過。
+- `.\gradlew.bat installLawnWithQuickstepGithubDebug` はビルドと APK 生成まで通過。
+- 実機 `SC-52C - 16` / adb serial `R5CT3378XTJ` を認識した。
+- 既存 `app.lawnchair.debug` との署名不一致で一度 install に失敗したが、既存 debug package をアンインストール後に install 成功。
+- ユーザー実機確認で、アプリアイコンの透明化は動作することを確認済み。
+
+発生した install エラー:
+
+```text
+INSTALL_FAILED_UPDATE_INCOMPATIBLE:
+Existing package app.lawnchair.debug signatures do not match newer version
+```
+
+対応:
+
+```powershell
+adb uninstall app.lawnchair.debug
+.\gradlew.bat installLawnWithQuickstepGithubDebug
+```
+
+インストールされた APK:
+
+```text
+Lawnchair.16.Dev.(fabeccf).github.debug.apk
+```
+
+### 7.6 フォルダ透明化対応
+
+実機確認後、アプリアイコンの透明化は動作したが、フォルダにも透明化を適用したいという要望が出た。
+
+原因:
+
+- `MorrowaTransparentItemController` 側では `ITEM_TYPE_FOLDER` を対象にしていた。
+- `ItemInflater` 側でも `FolderIcon` inflate 時に alpha 反映は入っていた。
+- しかし、既存の長押し popup は `BubbleTextView` 前提で、フォルダは `FolderIcon` として扱われる。
+- そのため、フォルダ長押し時は透明化 shortcut の popup 経路に入らず、通常の drag 開始に流れていた。
+
+対応内容:
+
+| ファイル | 内容 |
+|---|---|
+| `src/com/android/launcher3/popup/PopupContainerWithArrow.java` | popup の original icon を `BubbleTextView` 固定から `View` に広げ、`FolderIcon` 用の `showForFolderIcon()` を追加 |
+| `src/com/android/launcher3/folder/FolderIcon.java` | `startLongPressAction()` を追加し、フォルダから popup を開けるようにした |
+| `src/com/android/launcher3/Workspace.java` | drag 開始前の long press action で `FolderIcon.startLongPressAction()` を呼ぶようにした |
+| `src/com/android/launcher3/popup/LauncherPopupLiveUpdateHandler.java` | widget shortcut の live update は `BubbleTextView` popup のみ対象にし、フォルダ popup では何もしないようにした |
+
+実装方針:
+
+- フォルダ専用の別 UI は作らず、既存の system shortcut popup を流用する。
+- アプリアイコン向け deep shortcut / widget live update は `BubbleTextView` の場合だけ維持する。
+- フォルダ popup は system shortcut のみを表示し、`透明化` / `透明解除` を出す。
+- popup から drag へ移る既存の pre-drag 動作は壊さない。
+
+### 7.7 最終検証状況
+
+実行済み:
+
+- `git diff --check`
+- `.\gradlew.bat compileLawnWithQuickstepGithubDebugKotlin compileLawnWithQuickstepGithubDebugJavaWithJavac`
+- `.\gradlew.bat installLawnWithQuickstepGithubDebug`
+- 実機 `SC-52C - 16` への install 成功
+
+実機確認で見るべきこと:
+
+- 通常アイコンの長押しに `透明化` が出る。
+- 透明化後にアイコンとラベルが見えない。
+- 透明化後もタップ起動できる。
+- 透明化後も長押しで `透明解除` が出る。
+- 編集モード中だけ薄く表示される。
+- ドラッグ中に元セルのアイコンが復活しない。
+- フォルダでも透明化 / 解除できる。
+- ウィジェット、Habit / ToDo、Hotseat には透明化が出ない。
+
+残る注意点:
+
+- フォルダ透明化は `item:<favorites id>` を保存キーにするため、Launcher DB の row id が変わるような再作成 / layout import では状態が引き継がれない可能性がある。
+- 透明化済みフォルダも仕様通りタップ領域は残り、タップでフォルダを開ける。

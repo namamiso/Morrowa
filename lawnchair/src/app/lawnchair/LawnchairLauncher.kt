@@ -53,6 +53,7 @@ import app.lawnchair.views.LawnchairFloatingSurfaceView
 import app.morrowa.AlarmScheduler
 import app.morrowa.MorrowaPage
 import app.morrowa.MorrowaPageController
+import app.morrowa.MorrowaTransparentItemController
 import app.morrowa.NotificationHelper
 import app.morrowa.data.HabitRepository
 import app.morrowa.data.ToDoRepository
@@ -153,6 +154,7 @@ class LawnchairLauncher : QuickstepLauncher() {
                     mAppsView.reset(false, true)
                 }
             }
+            applyMorrowaTransparentItems()
         }
     }
 
@@ -305,7 +307,14 @@ class LawnchairLauncher : QuickstepLauncher() {
         super.getSupportedShortcuts(container),
         Stream.concat(
             Stream.of(LawnchairShortcut.UNINSTALL, LawnchairShortcut.CUSTOMIZE),
-            if (LawnchairApp.isRecentsEnabled) Stream.of(LawnchairShortcut.PAUSE_APPS) else Stream.empty(),
+            Stream.concat(
+                Stream.of(LawnchairShortcut.TRANSPARENT_TOGGLE),
+                if (LawnchairApp.isRecentsEnabled) {
+                    Stream.of(LawnchairShortcut.PAUSE_APPS)
+                } else {
+                    Stream.empty()
+                },
+            ),
         ),
     )
 
@@ -527,6 +536,7 @@ class LawnchairLauncher : QuickstepLauncher() {
     override fun finishBindingItems(pagesBoundFirst: IntSet?) {
         super.finishBindingItems(pagesBoundFirst)
         syncWorkspaceForMorrowaPage(morrowaPageController.currentPage.value)
+        applyMorrowaTransparentItems()
     }
 
     override fun onDestroy() {
@@ -561,6 +571,13 @@ class LawnchairLauncher : QuickstepLauncher() {
                 preferenceManager2.morrowaLastPageType.set(page.storedValue)
             }
             .launchIn(lifecycleScope)
+    }
+
+    private fun applyMorrowaTransparentItems() {
+        MorrowaTransparentItemController.applyToWorkspace(
+            workspace,
+            isInState(LauncherState.EDIT_MODE),
+        )
     }
 
     private fun handleMorrowaPageIntent(intent: Intent?) {

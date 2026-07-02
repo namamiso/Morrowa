@@ -159,6 +159,8 @@
     <string name="widget_cell_tap_to_show_add_button_label">Show add button</string>
     <!-- Accessibility label on the widget preview that on click (if add button is showing) hides the button to add widget to the home screen. [CHAR_LIMIT=none] -->
     <string name="widget_cell_tap_to_hide_add_button_label">Hide add button</string>
+    <string name="morrowa_transparent_item_enable">Make transparent</string>
+    <string name="morrowa_transparent_item_disable">Show icon</string>
     <!-- Text on the button that adds a widget to the home screen. [CHAR_LIMIT=15] -->
     <string name="widget_add_button_label">Add</string>
     <!-- Accessibility content description for the button that adds a widget to the home screen. The

@@ -226,4 +226,6 @@
     <string name="four_sided_cookie_shape_title" msgid="3275212586290522151">"四面クッキー"</string>
     <string name="seven_sided_cookie_shape_title" msgid="4862560582029671668">"七面クッキー"</string>
     <string name="arch_shape_title" msgid="2213843822192871318">"アーチ"</string>
+    <string name="morrowa_transparent_item_enable">透明化</string>
+    <string name="morrowa_transparent_item_disable">透明解除</string>
 </resources>

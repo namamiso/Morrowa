@@ -2017,6 +2017,8 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
             if (btv.isDisplaySearchResult()) {
                 dragOptions.preDragEndScale = (float) mAllAppsIconSize / btv.getIconSize();
             }
+        } else if (child instanceof FolderIcon folderIcon && !dragOptions.isAccessibleDrag) {
+            dragOptions.preDragCondition = folderIcon.startLongPressAction();
         }
 
         boolean lockHomeScreen = PreferenceExtensionsKt.firstBlocking(mPreferenceManager2.getLockHomeScreen());
@@ -3903,7 +3905,10 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
             final int itemCount = container.getChildCount();
             for (int itemIdx = 0; itemIdx < itemCount; itemIdx++) {
                 View item = container.getChildAt(itemIdx);
-                if (op.evaluate((ItemInfo) item.getTag(), item)) {
+                if (item == null || !(item.getTag() instanceof ItemInfo info)) {
+                    continue;
+                }
+                if (op.evaluate(info, item)) {
                     return item;
                 }
             }

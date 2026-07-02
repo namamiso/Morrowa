@@ -337,12 +337,14 @@ class LawnchairLauncher : QuickstepLauncher() {
 
     fun bindItems(items: List<ItemInfo>, forceAnimateIcons: Boolean) {
         // pE-TODO(QPR1): Note: null is modelWriter + bindItems override something
+        val morrowaTransparentKeys = MorrowaTransparentItemController.getTransparentKeys(this)
         val inflatedItems = items.map { i ->
             Pair.create(
                 i,
                 itemInflater?.inflateItem(
                     i,
                     null,
+                    morrowaTransparentKeys = morrowaTransparentKeys,
                 ),
             )
         }.toList()

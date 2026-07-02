@@ -402,3 +402,142 @@ Lawnchair.16.Dev.(fabeccf).github.debug.apk
 
 - フォルダ透明化は `item:<favorites id>` を保存キーにするため、Launcher DB の row id が変わるような再作成 / layout import では状態が引き継がれない可能性がある。
 - 透明化済みフォルダも仕様通りタップ領域は残り、タップでフォルダを開ける。
+
+### 7.8 レビュー追加反映
+
+レビューで見つかった以下の2点を修正した。
+
+| 指摘 | 対応 |
+|---|---|
+| フォルダ長押し popup に動作しない `App info` が混入する | `PopupContainerWithArrow.showForFolderIcon()` では通常アプリアイコン用の `getSupportedShortcuts()` を使わず、フォルダ用に `透明化 / 透明解除` と `Remove` だけを明示的に生成するよう修正 |
+| `ItemInflater` の透明化状態読み込みが item ごとに再実行される | `bindItems` / async inflate の batch 単位で `MorrowaTransparentItemController.getTransparentKeys()` を1回だけ読み、`ItemInflater.inflateItem()` へ渡すよう修正 |
+
+検証:
+
+```powershell
+.\gradlew.bat compileLawnWithQuickstepGithubDebugKotlin
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac
+```
+
+結果:
+
+- どちらも `BUILD SUCCESSFUL`
+
+---
+
+## 8. 2026-07-02 作業履歴: Habit / ToDo 全画面表示修正
+
+### 8.1 背景
+
+実機確認で、Habit / ToDo の専用ページが下方向につぶれて表示される問題があった。
+
+現在の Habit / ToDo は `MorrowaWorkspacePageView` として `CellLayout` に追加されている。`MorrowaWorkspacePageView` 内の `ComposeView` 自体は `MATCH_PARENT` / `fillMaxSize()` で作られていたが、親である `ShortcutAndWidgetContainer.measureChild()` の通常アイコン / フォルダ向け計測処理に入っていた。
+
+そのため、セル内でアイコンを中央寄せするための `cellPaddingY` が Morrowa 専用ページにも付与され、Compose 画面が下へ押し込まれていた。
+
+### 8.2 実装内容
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `src/com/android/launcher3/ShortcutAndWidgetContainer.java` | `MorrowaWorkspacePageView` を専用分岐にし、通常アイコン / フォルダ用 padding を付けないようにした |
+
+実装方針:
+
+- `MorrowaWorkspacePageView` は `CellLayout` 全体を使う専用ページとして扱う。
+- `NavigableAppWidgetHostView` や QSB、通常アイコン / フォルダの計測処理は変更しない。
+- `CellLayoutLayoutParams` の `lp.setup(...)` は維持し、`child.setPadding(0, 0, 0, 0)` だけを Morrowa 専用ページへ適用する。
+
+### 8.3 検証状況
+
+実行済み:
+
+```powershell
+.\gradlew.bat compileLawnWithQuickstepGithubDebugKotlin compileLawnWithQuickstepGithubDebugJavaWithJavac
+```
+
+結果:
+
+- `BUILD SUCCESSFUL`
+
+未実施:
+
+- 実機で Habit / ToDo が上下につぶれず全画面表示になることの確認。
+
+---
+
+## 9. 2026-07-02 作業履歴: 無限スクロール wrap アニメーション修正
+
+### 9.1 背景
+
+現在デフォルトで有効になっている無限スクロール機能で、最終ページから先頭ページ、または先頭ページから最終ページへ wrap する際のアニメーションが不自然だった。
+
+従来の実装では `snapToPageWithVelocity()` が実ページ上の scroll 位置差分をそのまま使うため、例えば 3 ページ構成で `2 -> 0` に移動する場合、視覚的には `2 -> 1 -> 0` のように全ページを横断する動きに見える。
+
+フォーク元 Lawnchair の PR #6653 `fix: infinite scroll wrap animation direction` を確認し、同 PR の方針を Morrowa の現在の差分に合わせて局所移植した。
+
+参照:
+
+- `https://github.com/LawnchairLauncher/lawnchair/pull/6653`
+- ローカル参照ブランチ: `upstream/pr-6653`
+- 対象コミット:
+  - `d42a4c2421 fix: infinite scroll wrap animation direction #6268`
+  - `9beb5c20e1 fix: RTL wrap drag trigger conditions`
+  - `de96e7e5ac fix: cancel wrap state on direction reversal, correct scroll progress for wrap target`
+  - `435ca61251 fix: wallpaper slides full range during wrap`
+  - `94f75fc717 fix: cache enableFeed per-gesture and clamp scroll on wrap cancel`
+
+### 9.2 実装内容
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `src/com/android/launcher3/PagedView.java` | wrap-scroll 状態管理、端ドラッグ時の仮想ページ配置、wrap 専用 snap、キャンセル / 中断時の復元、scroll progress 補正を追加 |
+| `src/com/android/launcher3/Workspace.java` | ページインジケータ更新時に wrap 補正済み scroll を使うよう変更 |
+| `src/com/android/launcher3/util/WallpaperOffsetInterpolator.java` | 壁紙オフセット更新時に wrap 補正済み scroll を使うよう変更 |
+
+実装方針:
+
+- PR #6653 の差分をそのまま上書きせず、Morrowa 側の Workspace 独自変更を保持したまま必要部分だけ移植した。
+- wrap 中だけ対象ページの `translationX` を一時的に変更し、先頭 / 最終ページを現在ページの隣に仮配置する。
+- `mMinScroll` / `mMaxScroll` を一時的に拡張し、`scrollTo` の clamp で仮想スクロールが潰れないようにする。
+- wrap 完了時は target page の本来の scroll 位置へ戻し、`translationX` と scroll bounds を復元する。
+- ドラッグを戻した場合、`ACTION_CANCEL`、アニメーション中断時は wrap 状態をキャンセル / finalize して表示状態を残さない。
+- Feed 有効時の先頭ページ左方向 wrap、および RTL 条件は PR #6653 の修正内容に合わせた。
+- Morrowa の Habit / ToDo 固定ページ、Widget Blank、透明化機能、画面順序保存処理には触れていない。
+
+### 9.3 検証状況
+
+実行済み:
+
+```powershell
+git diff --check -- src/com/android/launcher3/PagedView.java src/com/android/launcher3/Workspace.java src/com/android/launcher3/util/WallpaperOffsetInterpolator.java
+```
+
+結果:
+
+- `git diff --check` は通過。
+
+ビルド確認:
+
+- `.\gradlew.bat assembleDebug` は `.gradle` の lock file アクセスで一度失敗した。
+- 権限付きで `.\gradlew.bat assembleDebug` を再実行したが、2 分 / 5 分の timeout で完了しなかった。
+- `.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain` も timeout。
+- その後、ログ出力付きで `compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain --stacktrace --no-daemon` を実行したが、`compileLawnWithQuickstepGithubDebugKotlin` で 10 分以上停止したため、こちらで起動した Gradle / Java プロセスを停止した。
+
+未完了:
+
+- Gradle ビルド完了確認。
+- 実機での wrap アニメーション確認。
+
+実機確認で見るべきこと:
+
+- 無限スクロール有効時、最終ページから先頭ページへ移動しても全ページ横断に見えず、隣ページへ 1 ページ分だけ動く。
+- 先頭ページから最終ページへの wrap も同様に自然に見える。
+- ゆっくり端へドラッグした時、wrap 先ページが隣に見える。
+- ドラッグを戻した時にページ位置や alpha が壊れない。
+- アニメーション中にタップ / 中断しても `translationX` が残らない。
+- ページインジケータと壁紙パララックスが wrap 中に破綻しない。
+- Morrowa の Home / Habit / ToDo / Widget Blank のページ順と復帰挙動が崩れない。

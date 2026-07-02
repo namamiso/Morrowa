@@ -73,6 +73,9 @@ import com.android.launcher3.util.ShortcutUtil;
 import com.android.launcher3.views.ActivityContext;
 import com.android.launcher3.views.BaseDragLayer;
 
+import app.lawnchair.LawnchairLauncher;
+import app.lawnchair.ui.popup.LawnchairShortcut;
+
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -208,12 +211,36 @@ public class PopupContainerWithArrow<T extends Context & ActivityContext>
     }
 
     public static PopupContainerWithArrow<Launcher> showForFolderIcon(FolderIcon icon) {
+        Launcher launcher = Launcher.getLauncher(icon.getContext());
         ItemInfo item = (ItemInfo) icon.getTag();
-        return showForIcon(icon, item, 0, false);
+        List<SystemShortcut> systemShortcuts = new ArrayList<>();
+        if (launcher instanceof LawnchairLauncher lawnchairLauncher) {
+            SystemShortcut transparentShortcut = LawnchairShortcut.Companion.getTRANSPARENT_TOGGLE()
+                    .getShortcut(lawnchairLauncher, item, icon);
+            if (transparentShortcut != null) {
+                systemShortcuts.add(transparentShortcut);
+            }
+        }
+        SystemShortcut removeShortcut = SystemShortcut.REMOVE.getShortcut(launcher, item, icon);
+        if (removeShortcut != null) {
+            systemShortcuts.add(removeShortcut);
+        }
+        return showForIcon(icon, item, 0, false, systemShortcuts);
     }
 
     private static PopupContainerWithArrow<Launcher> showForIcon(
             View icon, ItemInfo item, int deepShortcutCount, boolean loadDeepShortcuts) {
+        Launcher launcher = Launcher.getLauncher(icon.getContext());
+        List<SystemShortcut> systemShortcuts = launcher.getSupportedShortcuts(item.container)
+                .map(s -> s.getShortcut(launcher, item, icon))
+                .filter(Objects::nonNull)
+                .collect(Collectors.toList());
+        return showForIcon(icon, item, deepShortcutCount, loadDeepShortcuts, systemShortcuts);
+    }
+
+    private static PopupContainerWithArrow<Launcher> showForIcon(
+            View icon, ItemInfo item, int deepShortcutCount, boolean loadDeepShortcuts,
+            List<SystemShortcut> systemShortcuts) {
         Launcher launcher = Launcher.getLauncher(icon.getContext());
         if (getOpen(launcher) != null) {
             // There is already an items container open, so don't open this one.
@@ -222,10 +249,6 @@ public class PopupContainerWithArrow<T extends Context & ActivityContext>
         }
 
         PopupContainerWithArrow<Launcher> container;
-        List<SystemShortcut> systemShortcuts = launcher.getSupportedShortcuts(item.container)
-                .map(s -> s.getShortcut(launcher, item, icon))
-                .filter(Objects::nonNull)
-                .collect(Collectors.toList());
         if (deepShortcutCount <= 0 && systemShortcuts.isEmpty()) {
             return null;
         }

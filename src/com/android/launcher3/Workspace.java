@@ -1572,7 +1572,7 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
 
     public void showPageIndicatorAtCurrentScroll() {
         if (mPageIndicator != null) {
-            mPageIndicator.setScroll(getScrollX(), computeMaxScroll());
+            mPageIndicator.setScroll(getScrollForPageIndicator(), computeMaxScroll());
             var isHotseatEnabled = PreferenceExtensionsKt.firstBlocking(mPreferenceManager2.isHotseatEnabled());
             mPageIndicator.setVisibility(isHotseatEnabled ? VISIBLE : INVISIBLE);
         }

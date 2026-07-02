@@ -46,6 +46,7 @@ import com.android.launcher3.widget.NavigableAppWidgetHostView;
 import com.patrykmichalik.opto.core.PreferenceExtensionsKt;
 
 import app.lawnchair.preferences2.PreferenceManager2;
+import app.morrowa.MorrowaWorkspacePageView;
 
 public class ShortcutAndWidgetContainer extends ViewGroup implements FolderIcon.FolderIconParent {
     static final String TAG = "ShortcutAndWidgetContainer";
@@ -176,6 +177,10 @@ public class ShortcutAndWidgetContainer extends ViewGroup implements FolderIcon.
             final PointF appWidgetScale = dp.getAppWidgetScale((ItemInfo) child.getTag());
             lp.setup(mCellWidth, mCellHeight, invertLayoutHorizontally(), mCountX, mCountY,
                     appWidgetScale.x, appWidgetScale.y, mBorderSpace, dp.widgetPadding);
+        } else if (child instanceof MorrowaWorkspacePageView) {
+            lp.setup(mCellWidth, mCellHeight, invertLayoutHorizontally(), mCountX, mCountY,
+                    mBorderSpace);
+            child.setPadding(0, 0, 0, 0);
         } else if (isChildQsb(child)) {
             lp.setup(mCellWidth, mCellHeight, invertLayoutHorizontally(), mCountX, mCountY,
                     mBorderSpace);

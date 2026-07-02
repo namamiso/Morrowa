@@ -8,6 +8,7 @@ import android.util.Pair
 import androidx.annotation.AnyThread
 import androidx.annotation.UiThread
 import androidx.annotation.VisibleForTesting
+import app.morrowa.MorrowaTransparentItemController
 import com.android.launcher3.LauncherConstants.TraceEvents.DISPLAY_WORKSPACE_TRACE_METHOD_NAME
 import com.android.launcher3.LauncherConstants.TraceEvents.SINGLE_TRACE_COOKIE
 import com.android.launcher3.LauncherSettings.Favorites.CONTAINER_DESKTOP
@@ -393,8 +394,17 @@ class ModelCallbacks(private var launcher: Launcher) : BgDataModel.Callbacks {
     /** Bind the items start-end from the list. */
     @VisibleForTesting
     fun bindItems(items: List<ItemInfo>, forceAnimateIcons: Boolean) {
+        val morrowaTransparentKeys = MorrowaTransparentItemController.getTransparentKeys(launcher)
         launcher.bindInflatedItems(
-            items.map { Pair.create(it, launcher.itemInflater.inflateItem(it)) },
+            items.map {
+                Pair.create(
+                    it,
+                    launcher.itemInflater.inflateItem(
+                        it,
+                        morrowaTransparentKeys = morrowaTransparentKeys,
+                    ),
+                )
+            },
             if (forceAnimateIcons) AnimatorSet() else null,
         )
     }
@@ -424,7 +434,17 @@ class ModelCallbacks(private var launcher: Launcher) : BgDataModel.Callbacks {
                 return
             }
 
-            val bindItems = items.map { Pair.create(it, inflater.inflateItem(it, null)) }
+            val morrowaTransparentKeys = MorrowaTransparentItemController.getTransparentKeys(launcher)
+            val bindItems = items.map {
+                Pair.create(
+                    it,
+                    inflater.inflateItem(
+                        it,
+                        null,
+                        morrowaTransparentKeys = morrowaTransparentKeys,
+                    ),
+                )
+            }
             if (bindItems.isNotEmpty())
                 executeCallbacksTask(executor) { launcher.bindInflatedItems(bindItems, null) }
         }

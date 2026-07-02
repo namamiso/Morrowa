@@ -61,6 +61,7 @@ class ItemInflater<T>(
         item: ItemInfo,
         nullableParent: ViewGroup? = null,
         container: Int = item.container,
+        morrowaTransparentKeys: Set<String>? = null,
     ): View? {
         val parent = nullableParent ?: defaultParent
         when (item.itemType) {
@@ -77,7 +78,7 @@ class ItemInflater<T>(
                     // Came from all apps prediction row -- make a copy
                     info = WorkspaceItemInfo(info)
                 }
-                return createShortcut(info, parent, container)
+                return createShortcut(info, parent, container, morrowaTransparentKeys)
             }
             Favorites.ITEM_TYPE_FOLDER ->
                 return FolderIcon.inflateFolderAndIcon(
@@ -92,6 +93,8 @@ class ItemInflater<T>(
                             this,
                             item,
                             context.isMorrowaEditMode(),
+                            morrowaTransparentKeys
+                                ?: MorrowaTransparentItemController.getTransparentKeys(context),
                         )
                     }
             Favorites.ITEM_TYPE_APP_PAIR ->
@@ -117,7 +120,12 @@ class ItemInflater<T>(
      * @param info The data structure describing the shortcut.
      * @return A View inflated from layoutResId.
      */
-    private fun createShortcut(info: WorkspaceItemInfo, parent: ViewGroup, container: Int): View {
+    private fun createShortcut(
+        info: WorkspaceItemInfo,
+        parent: ViewGroup,
+        container: Int,
+        morrowaTransparentKeys: Set<String>?,
+    ): View {
         val layout =
             if (container == Favorites.CONTAINER_HOTSEAT_PREDICTION) R.layout.predicted_app_icon
             else R.layout.app_icon
@@ -130,6 +138,7 @@ class ItemInflater<T>(
             favorite,
             info,
             context.isMorrowaEditMode(),
+            morrowaTransparentKeys ?: MorrowaTransparentItemController.getTransparentKeys(context),
         )
 
         if (container == Favorites.CONTAINER_HOTSEAT_PREDICTION) favorite.verifyHighRes()

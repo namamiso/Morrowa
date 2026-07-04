@@ -721,3 +721,75 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 補足:
 
 - `BackupScreen.kt` の既存 `Icons.Rounded.ArrowBack` と `Divider` に deprecated warning が出ているが、コンパイルは成功している。
+
+---
+
+## 12. 2026-07-04 作業履歴: App Drawer `Add to Home screen` drop target
+
+詳細は `docs/Morrowa_AppDrawer_実装計画.md` §12〜13 を参照。
+
+### 12.1 背景
+
+App Drawer 内のアプリアイコンを長押しした際、ホーム画面アイコン drag に近い drag/edit 状態に入り、上部に `Uninstall` / `Add to Home screen` の2つの drop target だけを出す機能の実装計画（`docs/Morrowa_AppDrawer_実装計画.md`）が origin に追加されていたため、事前調査 → 実装まで着手した。
+
+### 12.2 事前調査で判明した前提の変化
+
+Explore による調査の結果、想定と異なり以下が既に実装済みだった。
+
+- App Drawer 長押し → 既存 `DragController` ベースの drag 開始（`ItemLongClickListener.onAllAppsItemLongClick()` が `Workspace.beginDragShared()` を呼ぶ経路）
+- All Apps -> Workspace への配置（`Workspace.onDropExternal()` 経由）
+
+そのため実装スコープは「`Add to Home screen` 用の小さな `ButtonDropTarget` の新設」と「drag source によるボタン出し分け」の2点に縮小された。
+
+仕様判断（決定済み）: App Drawer 長押し時に今も出る既存のショートカット popup は、抑制せず共存させる。
+
+### 12.3 実装内容
+
+| ファイル | 内容 |
+|---|---|
+| `src/com/android/launcher3/AddToHomescreenDropTarget.java`（新規） | App Drawer 由来 drag のときだけ表示される `ButtonDropTarget`。`LauncherAccessibilityDelegate#addToWorkspace()` を呼び出して Workspace に配置する |
+| `src/com/android/launcher3/DeleteDropTarget.java` | drag が App Drawer 由来（`dragObject.dragSource instanceof ActivityAllAppsContainerView`）なら Remove/Cancel を非表示にする |
+| `res/layout/drop_target_bar.xml` | `AddToHomescreenDropTarget` を3つ目の子として追加（初期 `visibility="gone"`） |
+| `res/drawable/ic_add_no_shadow.xml`（新規） | 既存の Remove/Uninstall アイコンと同じスタイルの "+" アイコン |
+
+`ButtonDropTarget` 基底クラス、`DropTargetBar`、`SecondaryDropTarget`（Uninstall）は無改造。文字列は既存の `R.string.action_add_to_workspace`（全ロケール翻訳済み）を再利用し、新規追加していない。
+
+### 12.4 検証状況
+
+実行済み:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果:
+
+- `BUILD SUCCESSFUL in 2m 19s`（`compileLawnWithQuickstepGithubDebugKotlin` も依存タスクとして成功）
+- 新規 / 変更ファイル起因のエラーなし
+
+実機 install:
+
+- `adb uninstall app.lawnchair.debug` → `installLawnWithQuickstepGithubDebug` で再インストール成功（`SC-52C - 16`）。
+- `adb shell am start` で起動、プロセス生存確認、crash ログなし。
+- ドラッグ操作を伴う実際の動作確認（項目は §12.4 未実施欄参照）はタッチ操作が必要なため、ユーザーによる実機確認待ち。
+
+未実施:
+
+- 実機での手動確認（App Drawer 長押し → drag → 上部に `Uninstall` / `Add to Home screen` の2つだけが出る、`Add to Home screen` で Workspace に配置される、`Uninstall` が既存 flow を開く、drag cancel で通常状態に戻る、ホーム画面アイコン drag の既存表示が変わっていない、検索 / スクロール / フォルダ / prediction / profile 表示が壊れていない）。
+
+### 12.5 仕様の見直し（2026-07-04 実機確認後）
+
+ユーザーによる実機確認の過程で、想定挙動が異なることが判明した。
+
+- 現状の実装は、App Drawer 由来の drag でも `Workspace.onDragStart()`（`Workspace.java:558-563`）の無条件 `goToState(SPRING_LOADED)` により Home 画面へ強制的に切り替わってしまう。
+- ユーザーが望むのは、App Drawer 由来の drag では Home 画面へ遷移せず、**App Drawer 専用の編集モード**（Home の `SPRING_LOADED` 相当）に入り、その中で並び替え・フォルダ作成・フォルダ出し入れができ、Home 用とは別の専用上部バー（`Uninstall` / `Add to home screen`）を持つ、というもの。
+
+これは当初の「同一バー内でボタンを出し分ける」実装より大きいスコープになるため、詳細な調査結果と実装計画を新しい文書 `docs/Morrowa_AppDrawer_編集モード_実装計画.md` にまとめた。次のセッション以降はそちらの Phase A から着手する。
+
+### 12.6 App Drawer 編集モード Phase A / B 実装（2026-07-04）
+
+`docs/Morrowa_AppDrawer_編集モード_実装計画.md` の Phase A（新 `LauncherState` `DRAWER_SPRING_LOADED` の追加）・Phase B（App Drawer 由来 drag をこの state へルーティング）を実装し、それぞれビルド確認済み。
+
+実機確認の過程で、新 state に正しく遷移するがドラッグ中のアイコンが透明になり動かなくなる不具合が発覚。原因は `DrawerSpringLoadedState` に `AllAppsState` からそのままコピーしていた `FLAG_CLOSE_POPUPS` で、共存させている長押しpopupの自前クローズ処理と競合していたため。このフラグを削除し再ビルド・再インストールしたが、**ユーザー確認の結果、問題はまだ解消していない**。原因は完全には特定できておらず、次セッションでの追加調査が必要。詳細は `docs/Morrowa_AppDrawer_編集モード_実装計画.md` §9 を参照。

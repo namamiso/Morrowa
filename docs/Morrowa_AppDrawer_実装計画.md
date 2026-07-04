@@ -85,7 +85,39 @@ ItemInfo / AppInfo / WorkspaceItemInfo
 - `Add to Home screen` が既存 Workspace drop logic を再利用できるか、小さな新規 `DropTarget` が必要か
 - 触るべきファイル / 触らない方がよいファイル
 
-### 12.5 Phase 1: App Drawer long press から既存 drag を開始する
+### 12.4a 事前調査結果 (2026-07-04)
+
+Explore による調査の結果、前提が変わった。**App Drawer 長押しは、すでに Workspace と同じ `DragController` / `DropTargetBar` 基盤で drag を開始している。** Phase 1 相当は実質実装済みであり、新規に必要な実装はかなり小さい。
+
+主な事実:
+
+| 項目 | 結果 |
+|---|---|
+| App Drawer 長押し → drag 開始 | 既に実装済み。`ItemLongClickListener.onAllAppsItemLongClick()`（`touch/ItemLongClickListener.java:138-179`）が `launcher.getWorkspace().beginDragShared(v, launcher.getAppsView(), new DragOptions())`（同 L177）を呼び、Workspace 長押しと同じ `Workspace.beginDragShared` → `LauncherDragController.startDrag` 経路に入る |
+| drag source の記録 | `LauncherDragController.startDrag()` が `mDragObject.dragSource = source;`（`dragndrop/LauncherDragController.java:169`）を設定済み。App Drawer 由来なら `source` は `Launcher.getAppsView()`（`ActivityAllAppsContainerView`） |
+| All Apps -> Workspace 配置 | 既に実装済み。`Workspace.onDropExternal()`（`Workspace.java:3082-`、コメント L3182 "This is for other drag/drop cases, like dragging from All Apps"）が `ItemInflater.inflateItem()` で `AppInfo` を `WorkspaceItemInfo` に変換し配置する |
+| Uninstall target | `SecondaryDropTarget`（`SecondaryDropTarget.java`）が担当。`getButtonType()`（L151-193）は `ItemInfo` のみで判定しており、`AppInfo`（App Drawer 由来）でもそのまま動く。multi-profile 制約（work / private / cloned）も `item.user` ベースで既に対応済み |
+| `Add to Home screen` に相当するボタン | **存在しない**。`res/layout/drop_target_bar.xml` には `DeleteDropTarget`（Remove/Cancel）と `SecondaryDropTarget`（Uninstall）の2つしかない |
+| drag source によるボタン出し分け | **存在しない**。`ButtonDropTarget.onDragStart()`（`ButtonDropTarget.java:217-229`）は `dragObject.dragInfo`（`ItemInfo`）だけを見ており、`dragObject.dragSource` は見ていない。フィルタリングを入れるならここが差し込み点 |
+| App Drawer 長押し時の副作用 | `BubbleTextView.startLongPressAction()`（`BubbleTextView.java:1545-1547`）が `PopupContainerWithArrow.showForIcon()` を呼ぶため、**現状は App Drawer 長押しでも通常のショートカット popup メニューが同時に出る**。これは「長押しで即 drag/edit 状態に入る」という目標 UX と衝突する可能性がある。抑制するか共存させるかは仕様判断が必要 |
+
+再整理した実装スコープ:
+
+- 新規に必要なのは実質2点のみ。
+  1. `Add to Home screen` 用の小さな `ButtonDropTarget` サブクラスを新設し、`drop_target_bar.xml` に3つ目の子として追加する（通常 `GONE`）。中身は `Workspace.onDropExternal` / `ItemInflater.inflateItem` の配置ロジックを呼び出すだけでよい。
+  2. `dragObject.dragSource` が App Drawer（`ActivityAllAppsContainerView` / `launcher.getAppsView()`）由来かどうかで、表示するボタンを `Uninstall` + `Add to Home screen` に絞るフィルタリングを `ButtonDropTarget` 系に追加する。Workspace 由来の drag の既存表示（Remove/Cancel + Uninstall）は変更しない。
+- `DragController` / `Workspace.beginDragShared` / `DropTargetBar` / `SecondaryDropTarget` はすべて無改造で再利用できる。
+
+### 12.4b 仕様判断: ショートカット popup との共存 (決定済み, 2026-07-04)
+
+App Drawer 長押し時に出る既存のショートカット popup（`PopupContainerWithArrow.showForIcon()`）は、この機能のために抑制せず**共存させる**。
+
+- 長押し → 既存の popup（アプリ情報などの shortcut 一覧）が表示される。
+- 同時に drag も開始され、上部 drop target bar に `Uninstall` / `Add to Home screen` が表示される。
+- popup を閉じてそのまま drag を続ける、または popup 経由の操作を選ぶ、のどちらも既存動作のまま許容する。
+- 今回の実装では `BubbleTextView.startLongPressAction()` / `PopupContainerWithArrow` 周りは変更しない。
+
+### 12.5 Phase 1: App Drawer long press から既存 drag を開始する（調査の結果: 実質実装済み、要実機確認のみ）
 
 目的:
 App Drawer 内のアプリアイコン長押しで、既存 `DragController` ベースの drag を開始できるようにする。
@@ -307,3 +339,68 @@ DragController、DropTargetBar、ButtonDropTarget、UninstallDropTarget また�
 - App Drawer の検索、スクロール、prediction、profile handling が壊れていない。
 - Kotlin / Java compile が通る。
 - 無関係な整形、大規模 refactor、仕様外 target の追加がない。
+
+---
+
+## 13. 2026-07-04 実装内容: `Add to Home screen` drop target 追加
+
+### 13.1 背景
+
+§12.4a の事前調査の結果、App Drawer 長押し → drag 開始と、All Apps -> Workspace 配置は既に実装済みであることが判明した。新規実装が必要なのは次の2点のみに絞られた。
+
+1. `Add to Home screen` 用の小さな `ButtonDropTarget` サブクラス。
+2. drag の出所（Workspace か App Drawer か）で表示ボタンを絞るフィルタリング。
+
+ショートカット popup との共存については §12.4b の通り「共存させる」で決定済みのため、`BubbleTextView` / `PopupContainerWithArrow` 側は変更していない。
+
+### 13.2 実装内容
+
+変更 / 追加したファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `src/com/android/launcher3/AddToHomescreenDropTarget.java`（新規） | App Drawer 由来 drag のときだけ表示される `ButtonDropTarget`。`LauncherAccessibilityDelegate#addToWorkspace()` を呼び出して配置する |
+| `src/com/android/launcher3/DeleteDropTarget.java` | `dragObject.dragSource` が App Drawer（`ActivityAllAppsContainerView`）由来なら `supportsDrop()` が `false` を返し、Remove / Cancel を非表示にする |
+| `res/layout/drop_target_bar.xml` | `AddToHomescreenDropTarget` を3つ目の子として追加（初期 `visibility="gone"`） |
+| `res/drawable/ic_add_no_shadow.xml`（新規） | 既存の `ic_remove_no_shadow.xml` / `ic_uninstall_no_shadow.xml` と同じスタイル（20dp、`tint` 属性、白 fill）の "+" アイコン |
+
+文字列は新規追加していない。既存の `R.string.action_add_to_workspace`（"Add to home screen" / 日本語 "ホーム画面に追加"、全ロケール翻訳済み）をそのまま再利用した。
+
+### 13.3 実装方針の詳細
+
+- **配置ロジックの再利用**: `Workspace.onDropExternal()` ではなく、`LauncherAccessibilityDelegate.addToWorkspace(ItemInfo, boolean, Consumer<Boolean>)` を再利用した。この method は次の既存箇所で全く同じ用途に使われている。
+  - `LauncherAccessibilityDelegate` 自身の `ADD_TO_WORKSPACE` accessibility action（All Apps item のアクセシビリティ「ホーム画面に追加」）
+  - `BaseWidgetSheet.addWidget()` の「タップして追加」ボタン（`Launcher.getLauncher(context).getAccessibilityDelegate().addToWorkspace(...)`）
+  - `onDropExternal` は touch 座標ベースの配置が前提のため、座標を持たないボタンドロップには `addToWorkspace` の方が適合していた。
+- **drag source の判定**: `DropTarget.DragObject.dragSource instanceof ActivityAllAppsContainerView` で判定する。`LauncherDragController.startDrag()` が `dragSource` に `Launcher.getAppsView()` を設定済みのため、追加のフィールドや item model は不要だった。
+- **フィルタリングの実装場所**: `ButtonDropTarget`（抽象基底クラス）は変更せず、`AddToHomescreenDropTarget.supportsDrop()` と `DeleteDropTarget.supportsDrop()` それぞれに `mIsAppDrawerDrag` フィールドを持たせた。`onDragStart()` で `dragObject.dragSource` から判定して保持し、`supportsDrop(ItemInfo)` から参照する。`ButtonDropTarget` / `DropTargetBar` / `SecondaryDropTarget`（Uninstall）は無改造。
+- **`DropTargetBar` の可視ボタン数**: `onMeasure` / `onLayout` は「同時に見えるボタンは1個または2個」を前提にしている。`DeleteDropTarget` と `AddToHomescreenDropTarget` の表示条件（`mIsAppDrawerDrag` の真偽）は互いに排他的なため、Workspace 由来 drag では従来通り Remove/Cancel + Uninstall の最大2つ、App Drawer 由来 drag では Uninstall + Add to Home screen の最大2つに収まり、3つ同時表示にはならない。
+- **アクセシビリティ**: `AddToHomescreenDropTarget` はタッチ drag 専用とし、`getSupportedAccessibilityAction()` は常に `INVALID` を返す。All Apps item は既存の `ADD_TO_WORKSPACE` accessibility action で同等の機能を別経路から提供済みのため、二重実装していない。
+
+### 13.4 やらないことの確認
+
+- 独自 drag system は新設していない（既存 `DragController` / `Workspace.beginDragShared` / `LauncherDragController` をそのまま利用）。
+- `ButtonDropTarget` 基底クラス、`DropTargetBar`、`SecondaryDropTarget` は無改造。
+- `BubbleTextView.startLongPressAction()` / `PopupContainerWithArrow` は変更していない（ポップアップ共存の決定通り）。
+- Home 画面由来 drag の既存 target 表示・挙動は変更していない。
+
+### 13.5 検証状況
+
+実行:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果:
+
+- `BUILD SUCCESSFUL in 2m 19s`（`compileLawnWithQuickstepGithubDebugKotlin` も依存タスクとして実行され、両方成功）
+- 新規 / 変更ファイルに起因するコンパイルエラーなし
+- 出た warning はすべて本変更と無関係な既存コード由来（`DesktopModeStatus` deprecated 使用など）
+
+未実施（次回以降）:
+
+- 実機 install（`installLawnWithQuickstepGithubDebug`）。
+- 実機での動作確認（App Drawer 長押し → drag → 上部に Uninstall / Add to Home screen が2つだけ出る、Add to Home screen で Workspace に配置される、Uninstall が既存 flow を開く、drag cancel で通常状態に戻る、ホーム画面アイコン drag の既存表示が変わっていない、検索 / スクロール / フォルダ / prediction / profile 表示が壊れていない）。

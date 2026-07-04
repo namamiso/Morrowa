@@ -26,6 +26,7 @@ import android.util.Log;
 import android.view.View;
 
 import com.android.launcher3.accessibility.LauncherAccessibilityDelegate;
+import com.android.launcher3.allapps.ActivityAllAppsContainerView;
 import com.android.launcher3.dragndrop.DragOptions;
 import com.android.launcher3.logging.StatsLogManager;
 import com.android.launcher3.model.data.CollectionInfo;
@@ -44,6 +45,9 @@ public class DeleteDropTarget extends ButtonDropTarget {
     private StatsLogManager.LauncherEvent mLauncherEvent;
 
     private final PreferenceManager2 pref2;
+
+    /** Whether the current drag originated from the App Drawer (All Apps) rather than Workspace. */
+    private boolean mIsAppDrawerDrag;
 
     public DeleteDropTarget(Context context) {
         this(context, null, 0);
@@ -67,6 +71,8 @@ public class DeleteDropTarget extends ButtonDropTarget {
 
     @Override
     public void onDragStart(DropTarget.DragObject dragObject, DragOptions options) {
+        // App Drawer drags show Uninstall / Add to home screen instead of Remove / Cancel.
+        mIsAppDrawerDrag = dragObject.dragSource instanceof ActivityAllAppsContainerView;
         super.onDragStart(dragObject, options);
         setTextBasedOnDragSource(dragObject.dragInfo);
         setControlTypeBasedOnDragSource(dragObject.dragInfo);
@@ -103,7 +109,7 @@ public class DeleteDropTarget extends ButtonDropTarget {
 
     @Override
     protected boolean supportsDrop(ItemInfo info) {
-        return true;
+        return !mIsAppDrawerDrag;
     }
 
     /**

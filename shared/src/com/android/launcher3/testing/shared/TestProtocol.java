@@ -43,6 +43,8 @@ public final class TestProtocol {
     public static final int HINT_STATE_TWO_BUTTON_ORDINAL = 8;
     public static final int OVERVIEW_SPLIT_SELECT_ORDINAL = 9;
     public static final int EDIT_MODE_STATE_ORDINAL = 10;
+    /** Morrowa: dedicated App Drawer drag/edit mode, separate from {@code SPRING_LOADED}. */
+    public static final int DRAWER_SPRING_LOADED_STATE_ORDINAL = 11;
     public static final String SEQUENCE_MAIN = "Main";
     public static final String SEQUENCE_TIS = "TIS";
     public static final String SEQUENCE_PILFER = "Pilfer";
@@ -71,6 +73,8 @@ public final class TestProtocol {
                 return "OverviewSplitSelect";
             case EDIT_MODE_STATE_ORDINAL:
                 return "EditMode";
+            case DRAWER_SPRING_LOADED_STATE_ORDINAL:
+                return "DrawerSpringLoaded";
             default:
                 return "Unknown";
         }

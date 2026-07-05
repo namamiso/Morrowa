@@ -26,7 +26,6 @@ import static com.android.launcher3.LauncherSettings.Favorites.CONTAINER_DESKTOP
 import static com.android.launcher3.LauncherSettings.Favorites.CONTAINER_HOTSEAT;
 import static com.android.launcher3.LauncherSettings.Favorites.CONTAINER_HOTSEAT_PREDICTION;
 import static com.android.launcher3.LauncherState.ALL_APPS;
-import static com.android.launcher3.LauncherState.DRAWER_SPRING_LOADED;
 import static com.android.launcher3.LauncherState.EDIT_MODE;
 import static com.android.launcher3.LauncherState.FLAG_MULTI_PAGE;
 import static com.android.launcher3.LauncherState.FLAG_WORKSPACE_ICONS_CAN_BE_DRAGGED;
@@ -534,7 +533,10 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         // action for move/add to homescreen.
         // When a accessible drag is started by the folder, we only allow rearranging withing the
         // folder.
-        boolean addNewPage = !(options.isAccessibleDrag && dragObject.dragSource != this);
+        // Morrowa: App Drawer-origin drags never land on the Workspace (ALL_APPS rejects the
+        // drop, see workspaceIconsCanBeDragged()), so there's no need to pre-add an empty page.
+        boolean addNewPage = !(options.isAccessibleDrag && dragObject.dragSource != this)
+                && !(dragObject.dragSource instanceof ActivityAllAppsContainerView);
         if (addNewPage) {
             mDeferRemoveExtraEmptyScreen = false;
             addExtraEmptyScreenOnDrag(dragObject);
@@ -560,12 +562,12 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         if (mAccessibilityDragListener != null) {
             mAccessibilityDragListener.onDragStart(dragObject, options);
         }
-        // Morrowa: App Drawer drags get their own dedicated edit state instead of jumping to
-        // Home's SPRING_LOADED, so the drawer stays open while dragging.
+        // Morrowa: App Drawer drags stay in ALL_APPS so the drawer remains open while
+        // dragging. Leaving ALL_APPS mid-drag (to SPRING_LOADED or any other state) triggers
+        // Launcher#onStateSetEnd's getAppsView().reset(false) and breaks the many
+        // "drawer open == ALL_APPS" identity checks across the codebase.
         if (dragObject.dragSource instanceof ActivityAllAppsContainerView) {
-            if (!mLauncher.isInState(DRAWER_SPRING_LOADED)) {
-                mLauncher.getStateManager().goToState(DRAWER_SPRING_LOADED);
-            }
+            // Intentionally no state change.
         } else if (!mLauncher.isInState(EDIT_MODE)) {
             mLauncher.getStateManager().goToState(SPRING_LOADED);
         }

@@ -793,3 +793,18 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 `docs/Morrowa_AppDrawer_編集モード_実装計画.md` の Phase A（新 `LauncherState` `DRAWER_SPRING_LOADED` の追加）・Phase B（App Drawer 由来 drag をこの state へルーティング）を実装し、それぞれビルド確認済み。
 
 実機確認の過程で、新 state に正しく遷移するがドラッグ中のアイコンが透明になり動かなくなる不具合が発覚。原因は `DrawerSpringLoadedState` に `AllAppsState` からそのままコピーしていた `FLAG_CLOSE_POPUPS` で、共存させている長押しpopupの自前クローズ処理と競合していたため。このフラグを削除し再ビルド・再インストールしたが、**ユーザー確認の結果、問題はまだ解消していない**。原因は完全には特定できておらず、次セッションでの追加調査が必要。詳細は `docs/Morrowa_AppDrawer_編集モード_実装計画.md` §9 を参照。
+
+### 12.7 App Drawer 編集モード 設計転換と一連の不具合修正（2026-07-05）
+
+前回セッションで積み残した「App Drawer 由来 drag でアイコンが透明化する」問題を継続調査し、独立 `LauncherState`（`DRAWER_SPRING_LOADED`）方式そのものに構造的な欠陥があると判明。`Launcher.onStateSetEnd()` が `ALL_APPS` から別 state への遷移完了時に無条件で `getAppsView().reset(false)` を呼び、drag 中の RecyclerView をリセットしていたことが直接原因。ALL_APPS 前提の同一性チェックが他にも多数あり、独立 state を維持するモグラ叩きのリスクが高いと判断し、**方針転換**: 独立 state を廃止し、App Drawer 由来 drag では `ALL_APPS` state のまま drag する方式へ変更（Phase A の `DrawerSpringLoadedState` は削除）。
+
+この方針転換後、実機確認を繰り返す中で次の不具合を発見・修正した。
+
+1. 上部バー（`Uninstall` / `Add to home screen`）が Drawer の裏に隠れる → `launcher.xml`（`res/` と `lawnchair/res/` 両方）で `drop_target_bar` を `DragLayer` の最後の子（最前面）へ移動。
+2. グリッド上で指を離すと確認なしに Home へ強制遷移する → `LauncherDragController.exitDrag()` が drag source に関わらず無条件に `goToState(NORMAL)` していたのが原因。App Drawer 由来 drag ではスキップするよう修正。あわせて `Workspace.onDragStart()` の `addExtraEmptyScreenOnDrag()` も App Drawer 由来では skip。
+3. `Add to home screen` が機能しない → `LauncherAccessibilityDelegate.addToWorkspace()` の `goToState(NORMAL, ..., successCallback)` が、直後に呼ばれる `DropTargetHandler.onDropAnimationComplete()` の重複した `goToState(NORMAL)` によってキャンセルされ、配置処理（成功コールバック内）が実行されないまま state だけ Home へ遷移していたのが原因。
+4. 修正3で `ItemInstallQueue` 経由に変更した結果、配置は成功するようになったが常に4ページ目（screen index 0 から順に空きを探す挙動）に追加されてしまう新たな不具合が発生。`AddToHomescreenDropTarget` 内に「現在裏で開いているページを優先し、Habit/ToDo（overlay page）の場合は Home にフォールバックする」ロジックを直接実装して解消。
+
+最終確認: Home / Widget Blank / Habit・ToDo の3パターンすべてで `Add to home screen` が意図したページに正しく追加されることを実機で確認済み。上部バーの表示、grid上でのキャンセル、back ジェスチャーでのキャンセルもすべて実機確認済み。
+
+残課題: アプリ同士のドラッグによる並び替え・フォルダ作成・フォルダ出し入れ（Phase D以降、未着手）。ボタン使用後は Home へ戻る現状維持（Phase C で再検討）。詳細な調査ログ・コード根拠は `docs/Morrowa_AppDrawer_編集モード_実装計画.md` §9 を参照。

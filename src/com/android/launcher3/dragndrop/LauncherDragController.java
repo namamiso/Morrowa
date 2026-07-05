@@ -41,6 +41,7 @@ import com.android.launcher3.DropTarget.DragObject;
 import com.android.launcher3.Launcher;
 import com.android.launcher3.R;
 import com.android.launcher3.accessibility.DragViewStateAnnouncer;
+import com.android.launcher3.allapps.ActivityAllAppsContainerView;
 import com.android.launcher3.dragndrop.DragOptions.PreDragCondition;
 import com.android.launcher3.model.data.ItemInfo;
 import com.android.launcher3.util.TouchUtil;
@@ -244,6 +245,14 @@ public class LauncherDragController extends DragController<Launcher> {
 
     @Override
     protected void exitDrag() {
+        // Morrowa: App Drawer-origin drags never left ALL_APPS (see Workspace#onDragStart), so
+        // don't force a transition to NORMAL here either -- that would jump to Home even though
+        // the user just dropped inside (or cancelled from) the still-open App Drawer. Button
+        // drop targets (Uninstall / Add to home screen) go through ButtonDropTarget#onDrop /
+        // DropTargetHandler#onDropAnimationComplete instead, not this path.
+        if (mDragObject != null && mDragObject.dragSource instanceof ActivityAllAppsContainerView) {
+            return;
+        }
         if (!mIsInPreDrag && !mActivity.isInState(EDIT_MODE)) {
             mActivity.getStateManager().goToState(NORMAL, SPRING_LOADED_EXIT_DELAY);
         }

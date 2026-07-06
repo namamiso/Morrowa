@@ -543,3 +543,326 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 `Add to home screen` は、裏で開いているページを正しく認識して配置できることを実機で確認した。§9.6〜§9.8 で追跡していた `Add to home screen` 関連の不具合（透明化・強制Home遷移・配置されない・配置先ページ違い）はこれで一通り解消。
 
 残課題（既知、Phase D 以降で対応予定）: アプリ同士のドラッグによる並び替え・フォルダ作成・フォルダ出し入れは未実装（§9.2 / 追加報告の通り）。修正3（ボタン使用後は Home へ戻る）は現状維持のまま。5・6番（Home 由来 drag の回帰、Overview/フォルダ/ウィジェットの見た目回帰）は明示的な問題報告なし。
+
+## 10. Phase D 詳細計画: アプリ同士のドラッグによる並び替え（2026-07-06）
+
+### 10.1 スコープ
+
+Phase D は「App Drawer 内でアプリアイコンをドラッグして別の位置に落とすと、並び順が変わり、再起動後も保持される」まで。フォルダ作成（Phase E）・フォルダ出し入れ（Phase F）はやらない。
+
+前提となる現状（§9.8 時点）: App Drawer 由来 drag は `ALL_APPS` state のまま、上部バーは Drawer の上に見え、grid 上で離すと何も起きずに Drawer に留まる（drop は `Workspace.acceptDrop` に拒否され `exitDrag` の Home 遷移はスキップ済み）。
+
+### 10.2 追加調査で確定した事実（2026-07-06）
+
+**(a) 並び順の決定箇所とフックポイント**
+
+- 表示順は `AlphabeticalAppsList.onAppsUpdated()`（`allapps/AlphabeticalAppsList.java:260`）の `appSteam.sorted(mAppNameComparator)` で決まる。**`mAppNameComparator` は private**（`:119`）なので、Lawnchair サブクラスから comparator を差し替える最小フックが現状存在しない。
+- 案: 基底クラスに `protected Comparator<AppInfo> getAppSortComparator()`（既定は `mAppNameComparator` を返す）を1メソッド追加し、line 260/261 がこれを使うようにする。`LawnchairAlphabeticalAppsList` が override して「保存済み手動順 comparator」を返す。`onAppsUpdated()` 全体の複製 override（private space・中国語ロケール処理などを抱え込む）よりはるかに小さく、AOSP 差分も追跡しやすい。
+- リスト生成は 3 インスタンス（`ActivityAllAppsContainerView.initContent()`、`:290-298`）: MAIN / WORK / SEARCH すべて `LawnchairAlphabeticalAppsList`。**手動順を適用するのは MAIN のみ**（型は同じなのでコンストラクタ引数などで区別が必要。MAIN は workManager=null + privateProfileManager 付き、という現状の引数差だけでは不明瞭なので、明示フラグを渡す）。
+- Lawnchair のリスト組み立て（`LawnchairAlphabeticalAppsList.addAppsWithSections()`、`.kt:92-138`）:
+  - `drawerList=true`（通常モード）: 先頭に App Drawer フォルダ群（`getSortedFolders()`、順序は `prefs.drawerListOrder`）→ 残りのアプリを `super.addAppsWithSections()`（渡された順 = `mApps` のソート順）。**comparator 差し替えは「残りのアプリ」の順序にそのまま効く**。
+  - `drawerList=false`（自動カテゴリモード）: `categorizeAppsWithSystemAndGoogle` で自動生成フォルダ化。手動並び替えと概念的に両立しない。
+- fast scroller のセクション（`AlphabeticalAppsList.addAppsWithSections()`、`:483-518`）は `info.sectionName` が**変わるたびに**新セクションを作る。手動順ではセクション名が非単調になり、レターが乱立する可能性がある（§10.5 リスク参照）。
+- `updateAdapterItems()` は既に DiffUtil（`MyDiffCallback`、`:362-365` / `:582-611`）で差分を adapter へ配信するため、**並び替え結果は既存経路で move アニメーションになる**見込み。
+
+**(b) DropTarget 実装要件と登録順**
+
+- `DropTarget` interface（`DropTarget.java:120-165`）: `isDropEnabled` / `acceptDrop` / `onDrop` / `onDragEnter` / `onDragOver` / `onDragExit` / `prepareAccessibilityDrop` / `getHitRectRelativeToDragLayer`。
+- 登録順が優先順位を決める: `DragController.findDropTarget()` は**登録の逆順**で hit-rect 判定。`Launcher.setupViews()` では `mWorkspace.setup()`（`:1342`、Workspace 登録）→ `mDropTargetBar.setup()`（`:1360`、バーのボタン登録）の順なので、現状の優先度は「バー > Workspace」。
+- **`mAppsView` の DropTarget 登録は `:1342` と `:1360` の間**に入れる。優先度が「バー > appsView > Workspace」になり、(1) バーへの drop は従来通りボタンが取る、(2) grid 上の drop は appsView が取る（Workspace まで到達しない）、(3) 開いたフォルダは動的登録（`Folder.java:847`、常に最後 = 最優先）でフォルダ内 drag を邪魔しない。
+- drop 位置→リスト位置の変換: `getActiveRecyclerView().findChildViewUnder(x, y)` + `getChildAdapterPosition()`（標準 RecyclerView API）。DragLayer 座標→RV ローカル座標の変換が必要（`DragLayer.mapCoordInSelfToDescendant` 相当の既存 utility を使う）。
+
+**(c) 永続化基盤**
+
+- `AppDatabase`（`lawnchair/src/app/lawnchair/data/AppDatabase.kt`、version 3、DB名 "preferences"）に既に `FolderItemEntity`（ComponentKey 文字列 + `rank`）の前例がある。
+- 新エンティティ `DrawerAppOrderEntity(componentKey: String PRIMARY KEY, rank: Int)` + DAO を追加し、**version 4 + Migration(3,4)** を書く。文字列 preference（`drawerListOrder` 方式）はアプリ数百件分の ComponentKey を1文字列に詰めることになるため採らない。
+
+### 10.3 仕様判断（推奨込み・実装前に確認）
+
+| # | 論点 | 推奨 |
+|---|---|---|
+| 1 | 並び順モデル | **初回の手動並び替え時に、その時点の表示順（アルファベット順）を rank としてシード保存**し、以後は手動順。並び順テーブルが空の間は従来通り純アルファベット順（挙動不変） |
+| 2 | 新規インストールアプリ | 手動順の**末尾に追加**（rank 未登録のアプリは comparator で末尾へ、末尾内はアルファベット順） |
+| 3 | 適用範囲 | **メイン（個人）タブのみ**。Work / Private space タブと検索結果はアルファベット順のまま（並び替え drop も受け付けない） |
+| 4 | 自動カテゴリモード（`drawerList=false`） | 並び替え**無効**（`acceptDrop=false`）。手動カテゴリと自動カテゴリは両立しない |
+| 5 | フォルダ item | Phase D では**動かせない・drop 先にもならない**。アプリの挿入位置はフォルダ領域（リスト先頭）より後ろに clamp |
+| 6 | 並び順のリセット手段 | MVP では提供しない（将来、設定画面に「並び順をリセット」を検討） |
+
+### 10.4 実装ステップ
+
+**D1: 永続化 + ソート差し替え基盤（UI 変更なし）**
+
+- 対象: `AppDatabase.kt`（version 4 + migration）、新規 `DrawerAppOrderEntity` / DAO / repository（`lawnchair/src/app/lawnchair/data/appdrawer/` など folder パッケージに倣う）、`AlphabeticalAppsList.java`（`getAppSortComparator()` フック追加、2行変更 + 1メソッド）、`LawnchairAlphabeticalAppsList.kt`（MAIN のみ保存順 comparator を返す + 保存順の observe → `onAppsUpdated()`）。
+- やらないこと: DropTarget 実装、drag との接続。
+- 受け入れ条件: 並び順テーブルが空なら挙動が完全に従来通り。テーブルに手動で rank を入れると（adb / テストコードで investigation）Drawer の並びが変わり、再起動後も保持される。WORK / SEARCH リストは常にアルファベット順。
+- 検証: compile + 実機で従来挙動の不変を確認、rank 手動投入で並び替わることを確認。
+
+**D2: `ActivityAllAppsContainerView` の DropTarget 実装（drop で並び替え確定）**
+
+- 対象: `ActivityAllAppsContainerView.java`（`DropTarget` 実装、Lawnchair 拡張ポイントに置けるなら `LauncherAllAppsContainerView` 側でも可）、`Launcher.setupViews()`（`:1342` と `:1360` の間で `mDragController.addDropTarget(mAppsView)`）。
+- 実装内容:
+  - `isDropEnabled()` / `acceptDrop()`: App Drawer 由来 drag（`dragObject.dragSource instanceof ActivityAllAppsContainerView` — 既存イディオム）かつ MAIN タブ表示中・非検索・`drawerList=true` のときだけ true。
+  - `onDrop()`: drop 座標 → `findChildViewUnder` → adapter position → 挿入先 index（アイコン item のみ対象、フォルダ領域より前は clamp）。並び順が未シードなら現在の表示順をシード → 対象アプリを挿入位置へ move → DAO へ書き込み → `onAppsUpdated()`（DiffUtil が move アニメーションを配信）。
+  - アイコン以外（余白・divider 等）への drop、対象外条件での drop は「何もしない」（現状の挙動 = DragView 即時消滅と同じ）。
+- やらないこと: drag 中のリアルタイム入れ替えプレビュー、edge auto-scroll、フォルダへの drop。
+- 受け入れ条件: アプリ A をアプリ B の位置に drop すると A がその位置へ挿入され、他アプリが繰り下がる。再起動後も保持。バーへの drop（Uninstall / Add to home screen）は従来通り。Home 由来 drag に影響なし。検索・fast scroll・フォルダ表示・Work タブが壊れていない。
+- 検証: compile + 実機。
+
+**D3: drag 中の UX 磨き（それぞれ独立に導入可・必要性を実機で判断してから）**
+
+- (i) リアルタイム並び替えプレビュー: `onDragOver()` で hit-test し、Workspace の `ReorderAlarmListener`（250ms）に倣った throttle で暫定順をメモリ上に反映 → `updateAdapterItems()`（DiffUtil アニメ）。DB 書き込みは drop 時のみ。
+- (ii) edge auto-scroll: drag 座標が RV 上下端ゾーンに入ったら `scrollBy` で自動スクロール（長いリストの端まで運べないため、実用上ほぼ必須の見込み）。
+- (iii) 無効 drop 時のフライバック: §9.7 留意点1（DragView 即消え）の改善。`animateDragViewToOriginalPosition` 相当を drawer 内座標で。
+- 受け入れ条件: 各項目単体で導入し、D2 の受け入れ条件が維持されていること。
+
+**D4: 回帰確認（検証のみ）**
+
+- 検索、fast scroll（特に手動順時のレター挙動）、Work / Private profile、App Drawer フォルダ表示（`drawerList` 両モード）、アプリのインストール/アンインストール時のリスト更新、Home 由来 drag、`Uninstall` / `Add to home screen`、Home 画面既存機能。
+
+### 10.5 リスク
+
+- **fast scroller の非単調セクション**: 手動順ではレターが乱立・非単調になる。実機確認のうえ破綻するようなら「手動順が有効な間はセクションを1つに畳む（レター無効化）」をフォールバックとして D2 に含める。
+- **`AlphabeticalAppsList` への AOSP 変更**: `getAppSortComparator()` フックは小さいが upstream merge の conflict 点になる。1メソッド + 参照2行に留める。
+- **live preview の負荷**: `onAppsUpdated()` はフィルタ・ソート・リスト再構築を全部やる。D3(i) では DB を読まずメモリ上の暫定 rank だけで回し、throttle を必ず入れる。
+- **MAIN 判定の明示化**: 3つの `LawnchairAlphabeticalAppsList` インスタンスの区別をコンストラクタ引数の暗黙差に頼らず明示フラグにする（将来の混線防止）。
+- **バックアップ**: `AppDatabase`（"preferences" DB）が Lawnchair のバックアップ/リストアに含まれるか未確認。含まれないなら並び順はバックアップ対象外となる（MVP 許容だが要確認・要記録）。
+- **RTL**: `findChildViewUnder` は座標ベースなので RTL でもそのまま動く見込みだが、挿入 index の前後判定（drop 位置がセルの左半分/右半分どちらか等を使う場合）は RTL 反転に注意。
+
+### 10.6 Codex への最初のタスク（D1）
+
+```text
+目的:
+App Drawer の手動並び順を永続化する基盤と、表示ソートを差し替える最小フックを作る。UI/drag は変更しない。
+
+対象:
+lawnchair/src/app/lawnchair/data/（新規 entity/DAO/repository、AppDatabase version 4 + migration）、
+src/com/android/launcher3/allapps/AlphabeticalAppsList.java（protected getAppSortComparator() フック）、
+lawnchair/src/app/lawnchair/allapps/LawnchairAlphabeticalAppsList.kt（MAIN のみ保存順 comparator）。
+
+読むべきファイル:
+AppDatabase.kt、folder/FolderEntity.kt、folder/service/FolderDao.kt（前例）、
+AlphabeticalAppsList.java:239-285（onAppsUpdated）、LawnchairAlphabeticalAppsList.kt。
+
+実装内容:
+DrawerAppOrderEntity(componentKey PRIMARY KEY, rank) + DAO + repository。
+AlphabeticalAppsList.onAppsUpdated() の sorted(mAppNameComparator) を sorted(getAppSortComparator()) に変更し、
+既定実装は mAppNameComparator を返す。
+LawnchairAlphabeticalAppsList は MAIN インスタンスのときだけ、保存順があれば
+「rank 順、未登録アプリは末尾（末尾内はアルファベット順）」の comparator を返す。
+保存順の変更を observe して onAppsUpdated() を呼ぶ。
+
+やらないこと:
+DropTarget 実装、drag との接続、設定画面、WORK/SEARCH リストへの適用。
+
+受け入れ条件:
+並び順テーブルが空なら全挙動が従来と同一。rank を手動投入すると MAIN の並びだけが変わり再起動後も保持される。
+
+検証方法:
+compileLawnWithQuickstepGithubDebugJavaWithJavac + 実機で従来挙動の不変確認。
+```
+
+### 10.7 D1 実装記録（2026-07-06）
+
+変更 / 追加ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/lawnchair/data/appdrawer/DrawerAppOrderEntity.kt`（新規） | `@Entity(tableName = "DrawerAppOrder") data class DrawerAppOrderEntity(@PrimaryKey val componentKey: String, val rank: Int)` |
+| `lawnchair/src/app/lawnchair/data/appdrawer/service/DrawerAppOrderDao.kt`（新規） | `getAll(): Flow<List<...>>`、`getAllOnce()`、`insertAll()`、`clear()` |
+| `lawnchair/src/app/lawnchair/data/AppDatabase.kt` | version 3→4、`DrawerAppOrderEntity` 追加、`drawerAppOrderDao()` 追加、`MIGRATION_3_4`（`FolderItems`/`Wallpapers` と同じ生 SQL 方式でテーブル作成） |
+| `src/com/android/launcher3/allapps/AlphabeticalAppsList.java` | `protected Comparator<AppInfo> getAppSortComparator()`（既定は `mAppNameComparator`）を追加。`onAppsUpdated()` の `appSteam.sorted(...)`（`mApps` 用、旧 line 260）だけをこのフック経由に変更。`privateAppStream.sorted(...)`（private space 用、旧 line 261）は `mAppNameComparator` 直呼びのまま**変更していない**（§10.3 決定3: Private space はアルファベット順のまま） |
+| `lawnchair/src/app/lawnchair/allapps/LawnchairAlphabeticalAppsList.kt` | コンストラクタに `isMainList: Boolean` を追加（デフォルトなし、3呼び出し元すべてで明示指定を強制）。`observeDrawerAppOrder()` で `DrawerAppOrderDao.getAll()` を observe し `drawerAppOrder: Map<String, Int>` を保持。`getAppSortComparator()` を override し、`isMainList && drawerAppOrder が非空 && prefs.drawerList.get()`（手動フォルダモード）のときだけ「rank 順、未登録は末尾＋末尾内アルファベット順」の comparator を返す |
+| `src/com/android/launcher3/allapps/ActivityAllAppsContainerView.java` | MAIN/WORK/SEARCH の3箇所のコンストラクタ呼び出しに `isMainList` を明示指定（MAIN のみ `true`） |
+
+実装方針の補足:
+
+- `getAppSortComparator()` フックは §10.2(a) の調査通り、`onAppsUpdated()` 全体を複製 override せず、2行だけ変更する最小差分にした。
+- `isMainList` はコンストラクタ必須引数にした（デフォルト値を付けず、Java 側3呼び出し元すべてで明示させることで、将来の呼び出し追加時に指定漏れがコンパイルエラーになるようにした。§10.5 で懸念していた「暗黙差に頼る」リスクを排除）。
+- `kotlinx.coroutines.flow.onEach` は `com.patrykmichalik.opto.core.onEach`（同ファイルで既存 preference 監視に使用中）と名前が衝突するため、`import kotlinx.coroutines.flow.onEach as onEachFlow` でエイリアスして明示的に区別した。
+- §10.3 決定4（自動カテゴリモードでは並び替え無効）を D1 の時点から `getAppSortComparator()` 内で `prefs.drawerList.get()` チェックとして先取りで組み込んだ（D2 の DropTarget 側でも別途ガードする想定だが、二重の安全策として）。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: `BUILD SUCCESSFUL in 4m 12s`。新規/変更ファイル起因のエラーなし（Room の KSP annotation processing、Kotlin コンパイルとも成功）。
+
+未実施:
+
+- 実機確認（`DrawerAppOrder` テーブルが空の状態でこれまで通りの挙動になっているか、`drawerAppOrderDao().insertAll(...)` 等で手動投入した場合に MAIN リストだけ並びが変わり、WORK / SEARCH / Private space はアルファベット順のままか、再起動後も保持されるか）。
+- DB migration（v3→v4）が既存インストールに対して正しく走るか（クリーンインストールではなく、既存データがある状態でのアップグレード確認）。
+
+### 10.8 D2 実装記録（2026-07-06）
+
+変更 / 追加ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/lawnchair/data/appdrawer/service/DrawerAppOrderDao.kt` | `@Transaction suspend fun replaceAll(items)`（`clear()` → `insertAll()` を1トランザクションにまとめた、`FolderDao.insertFolderWithItems` と同じパターン）を追加 |
+| `lawnchair/src/app/lawnchair/allapps/LawnchairAlphabeticalAppsList.kt` | `getAppAtAdapterPosition(position): AppInfo?`（`mAdapterItems[position]` がアイコンなら `itemInfo` を返す）と `reorderApp(moved: AppInfo, insertBeforeComponentKey: String)`（現在の表示順から `moved` を除去し `insertBeforeComponentKey` の直前へ挿入、残り全件の rank を 0..N-1 に振り直して `replaceAll()` へ書き込み、`onAppsUpdated()` で反映）を追加 |
+| `lawnchair/src/app/lawnchair/allapps/views/SearchContainerView.kt` | `DropTarget` を実装。`acceptDrop()` は「App Drawer 由来 drag（`dragSource is ActivityAllAppsContainerView<*>`）かつ dragInfo が `AppInfo` かつ非検索かつ MAIN タブかつ `drawerList=true`」のときのみ true。`onDrop()` は `dragObject.x/y`（`SearchContainerView` 基準、`DragController.findDropTarget()` の座標変換により保証済み）を `Utilities.mapCoordInSelfToDescendant()` で RecyclerView ローカル座標に変換し、`findChildViewUnder()` + `getChildAdapterPosition()` で対象アプリを特定して `reorderApp()` を呼ぶ |
+| `src/com/android/launcher3/Launcher.java` | `setupViews()` で `mWorkspace.setup()` と `mDropTargetBar.setup()` の間に、`mAppsView instanceof DropTarget` の場合のみ `mDragController.addDropTarget(appsDropTarget)` を追加 |
+
+実装方針の補足:
+
+- `DropTarget` の実装場所は、当初案の `ActivityAllAppsContainerView.java`（AOSP 由来）ではなく、`R.id.apps_view` の実際の具象クラスである `SearchContainerView.kt`（`lawnchair/` 配下、完全に Lawnchair 独自）にした。`Launcher.java` 側の `mAppsView` の静的型は `ActivityAllAppsContainerView<Launcher>`（`DropTarget` 非実装）のままなので、`instanceof DropTarget` パターンマッチで実行時に安全にダウンキャストしている。これにより AOSP 由来コアクラス（`ActivityAllAppsContainerView` / `LauncherAllAppsContainerView`）は無改造。
+- 優先度調査（§10.2(b)）の再検証: 実際には `Workspace` は `mDropTargets` リストに明示登録されておらず、`LauncherDragController.getDefaultDropTarget()` の特殊フォールバック（リスト内のどの `DropTarget` にも該当しない場合の既定値）として機能している。そのため「バー > appsView > Workspace」という意図した優先度は、`mAppsView` をバーボタンより前に登録する（`findDropTarget()` が逆順走査するため、後から登録されたバーボタンが先にヒットする）ことと、Workspace が常に最終フォールバックであることの組み合わせで実現される。当初の計画メモの記述（Workspace も明示登録される前提）は不正確だったが、結論の優先度自体は変わらない。
+- 並び替えのデータソースは `mApps`（`private`、既存コードに手を入れず読めない）ではなく、`mAdapterItems`（`protected final`、`LawnchairAlphabeticalAppsList` 自身が既に読み書きしている）から `viewType == VIEW_TYPE_ICON` の項目だけを抽出する方式にした。フォルダ項目は自然に除外され、追加の clamp ロジックが不要になった。
+- rank は「対象位置へ挿入 → 全件を 0..N-1 に振り直して丸ごと `replaceAll()`」方式にした（部分更新や分数 rank ではなく）。Room 上のデータは常に密な連番になり、不整合が起きにくい。
+
+やらないこと（D2 スコープ外、計画通り）: drag 中のリアルタイム入れ替えプレビュー、edge auto-scroll、無効 drop 時のフライバック（すべて D3）。フォルダへの drop（D2 では `getAppAtAdapterPosition` がフォルダ項目に対して null を返すため自然に no-op）。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: `BUILD SUCCESSFUL in 1m 50s`。新規/変更ファイル起因のエラーなし。
+
+未実施: 実機確認（D1 の未実施項目に加えて）:
+
+- アプリ A をアプリ B の位置に drop すると A がその位置へ挿入され、他アプリが繰り下がる。
+- 並び替え結果が再起動後も保持される。
+- バーへの drop（Uninstall / Add to home screen）が従来通り動作する（優先度: バー > appsView が壊れていないか）。
+- Home 由来 drag に影響がない。
+- 検索・fast scroll・Work タブ・フォルダ表示が壊れていない。
+- フォルダ項目へ drop しても何も起きない。
+
+### 10.9 インストール確認（2026-07-06）
+
+`installLawnWithQuickstepGithubDebug` で実機（`SC-52C - 16`、既存の "preferences" DB を持つ既存インストール、クリーンインストールではない）へインストール。`adb shell am start` で起動、数秒後もプロセス生存を確認。`adb logcat` を `FATAL EXCEPTION` / `AndroidRuntime` / `SQLiteException` / Room migration 関連で確認したが該当ログなし。**v3→v4 の DB migration（`DrawerAppOrder` テーブル追加）は既存データを持つ実機に対して問題なく適用された。**
+
+D1/D2 の機能的な動作確認（実際にドラッグして並び替え、再起動後の永続化、検索/fast scroll/Work タブ/フォルダ/バー/Home 由来 drag の回帰確認）はまだ実施していない。
+
+### 10.10 実機確認結果（2026-07-06）: 並び替え不成立 + ゴースト DragView・原因確定
+
+実機報告: ドラッグ中はアイコンが指に追従するが、grid 上で指を離しても**並び替えは起きず**、離した場所に**当たり判定のないアイコン画像だけが残る**（Home に戻ってもそのまま見える）。
+
+#### 原因1（確定）: DragView の後始末契約違反 → ゴースト
+
+- `DropTarget.DragObject.deferDragViewCleanupPostAnimation` は**デフォルト true**（`DropTarget.java:73`）。
+- `DragController` の契約（`dispatchDropComplete()`、`dragndrop/DragController.java:292-297` のコメント）: **`acceptDrop()` が true を返した場合、DragView の後始末は drop target の責任**。drop target は次のどちらかを必ず行う必要がある。
+  - `DragLayer.animateViewIntoPosition(d.dragView, targetView, null)` で着地アニメーション（終了時に DragView が除去される）— `Folder.onDrop()` の `Folder.java:1620` が前例。
+  - `d.deferDragViewCleanupPostAnimation = false` を設定（`endDrag()` の `DragController.java:319-327` が即時 `dragView.remove()` する）— `Folder.java:1585` / `:1624` が前例。
+- 今回の `SearchContainerView.onDrop()` は**どちらも行っていない**。そのため acceptDrop=true になった drop では、成功・早期 return を問わず **DragView が DragLayer 上に永久に残る**。DragView はタッチを受けないただの浮遊ビューなので「当たり判定のないアイコン画像」になり、DragLayer は state を跨いで存在するので Home に戻っても見え続ける。症状と完全に一致。
+
+#### 原因2（ほぼ確定）: `findChildViewUnder` の early return → 並び替え不成立
+
+- `onDrop()` は `recyclerView.findChildViewUnder(x, y)` が null を返すと**無言で return** する（この経路でも原因1によりゴーストが残る）。
+- `findChildViewUnder` は「その座標が子 View の矩形の内側にあるとき」しかヒットしない。App Drawer の grid はアイコン View の間に余白があり、また使っている座標が `d.x/d.y`（**指のタッチ点**。`DragController.findDropTarget():590-596` で drop view ローカル座標へ変換済みだが、視覚中心ではない）なので、余白・行間に落ちると null になる。
+- 参考実装の `Folder` はこの問題を**厳密ヒットテストを使わない**ことで回避している: `getTargetRank()`（`Folder.java:1172-1176`）は `d.getVisualCenter()`（DragView の視覚中心）を使い、`findNearestArea(x, y)`（**最近傍セル**の計算）で必ずどこかの rank に解決する。
+- 加えて設計上の問題: 位置解決を `onDrop()` でやっているため「accept したのに何もできない」経路が存在する。`Workspace` / `Folder` は **`acceptDrop()` の時点で受け入れ可否を確定**し（`Workspace.acceptDrop()` は `mDropToLayout` 等へ結果をキャッシュ）、`onDrop()` は失敗しない前提で書かれている。
+
+### 10.11 詳細設計: `Folder` の並び替えアルゴリズムを RecyclerView へ移植する
+
+コードベース内で最も近い既存実装は `Folder.java`（`DropTarget` を実装し、rank ベースでアイコンを並び替える）。その構造を RecyclerView 用に対応させる。
+
+#### 10.11.1 参考: Folder のアルゴリズム構造
+
+| 要素 | Folder の実装 |
+|---|---|
+| ターゲット位置の計算 | `getTargetRank(d)`（`:1172`）: `d.getVisualCenter()` → `mContent.findNearestArea(x, y)`（最近傍セル。null がない） |
+| ドラッグ中の空き位置 | `mEmptyCellRank`（ドラッグ元 = 現在の空きセル rank） |
+| リアルタイム入れ替え | `onDragOver()`（`:1179`）: target が前回から変わったら `mReorderAlarm`（250ms、`REORDER_DELAY` `:196`）をセット → 発火で `realTimeReorder(mEmptyCellRank, mTargetRank)`（アニメ付きシフト）+ `mEmptyCellRank = mTargetRank`（`:1161-1166`） |
+| 端スクロール | visual center がセル幅×係数の端ゾーンに入ったら `showScrollHint`、スクロール中（`mScrollPauseAlarm` `:1180-1182`）は reorder を止め target を巻き戻す（`:1234-1235`） |
+| drop 確定 | `onDrop()`: 最終 rank に配置 + DB batch 更新 + **`animateViewIntoPosition(d.dragView, currentDragView, null)`**（`:1620`）または **`deferDragViewCleanupPostAnimation = false`**（`:1585`/`:1624`） |
+| 範囲外へ出た | `onDragExit` → `mOnExitAlarm` → `completeDragExit()`（並びを元に戻す/確定） |
+
+#### 10.11.2 新規クラス `AllAppsReorderController`
+
+`SearchContainerView` に直接ロジックを書かず、`app.lawnchair.allapps.reorder.AllAppsReorderController`（新規、Lawnchair 側）に集約する。`SearchContainerView` は `DropTarget` の6メソッドを controller へ委譲するだけの薄い層にする（`Folder` における `Folder`/`FolderPagedView` の分離に相当）。
+
+保持する状態:
+
+```text
+pendingOrder: MutableList<AppInfo>?   // drag 中の暫定表示順。onDragEnter でシード、onDrop で確定、onDragExit で破棄
+prevTargetIndex: Int                  // 前回計算した挿入先（Folder の mPrevTargetRank）
+reorderAlarm: Alarm                   // 250ms（Folder の REORDER_DELAY と同値）
+resolvedDropIndex: Int                // acceptDrop() でキャッシュする解決済み挿入先
+```
+
+#### 10.11.3 ターゲット位置計算 `computeTargetIndex(d): Int`（Folder の `getTargetRank` 相当）
+
+1. `d.getVisualCenter(recycle)` で **DragView の視覚中心**を取得（`d.x/d.y` の生タッチ座標は使わない。Folder `:1173` と同じ）。DragLayer 座標なので `Utilities.mapCoordInSelfToDescendant(recyclerView, dragLayer, coord)` で RV ローカルへ変換する（`d.x/d.y` は drop view ローカル変換済みだが、visual center は自前で変換が必要な点に注意）。
+2. `recyclerView.findChildViewUnder(x, y)` を試す。null の場合は**最近傍走査へフォールバック**: RV の可視子 View（`getChildCount()`/`getChildAt(i)`）のうち adapter item が `VIEW_TYPE_ICON` のものだけを対象に、View 中心と visual center の距離が最小の子を選ぶ（`findNearestArea` の RecyclerView 版。可視子が1つもなければ解決失敗）。
+3. 子 View → `getChildAdapterPosition()`（`NO_POSITION` なら `getChildViewHolder().getBindingAdapterPosition()` を試し、それでもダメなら解決失敗）。
+4. adapter position → **挿入 index への変換**: ターゲットセルの中心より visual center が「行方向で手前」なら before、「後ろ」なら after（x 比較、RTL では反転。y がセル範囲外の場合は行差で判定）。フォルダ item・divider・検索行など `VIEW_TYPE_ICON` 以外は対象外とし、挿入 index はアイコン領域（Lawnchair のリスト構成では App Drawer フォルダ群より後ろ）に clamp する（§10.3 判断5）。
+
+#### 10.11.4 DropTarget コールバックの責務
+
+- **`acceptDrop(d)`**: 既存のゲート（App Drawer 由来 / `AppInfo` / 非検索 / 個人タブ / `drawerList=true`）に加えて **`computeTargetIndex` まで実行**し、解決できたら `resolvedDropIndex` にキャッシュして true。解決できなければ **false**（→ `DragController` 側の不受理経路が DragView を掃除し、`exitDrag` は §9.7 修正2 により Drawer に留まる。「accept したのに何もしない」経路を構造的に無くす。`Workspace.acceptDrop` が `mDropToLayout` にキャッシュするのと同じパターン）。
+- **`onDrop(d, options)`**: 失敗しない前提で書く。
+  1. `pendingOrder`（live preview 有効時）または現在表示順をシードに、ドラッグ中アプリを `resolvedDropIndex` へ move。
+  2. `DrawerAppOrderDao.replaceAll(...)` へ永続化（既存 D1 の `reorderApp` を「挿入 index 指定」版に改める。`insertBeforeComponentKey` 方式は最近傍フォールバックや末尾 drop で表現しきれないため index 方式へ変更）。
+  3. `onAppsUpdated()` → DiffUtil（`AlphabeticalAppsList.java:362-365`）が move を配信。
+  4. **DragView の後始末（必須）**: 並び替え後のターゲット位置の子 View が特定できるなら `dragLayer.animateViewIntoPosition(d.dragView, targetChildView, null)`（Folder `:1620`）。DiffUtil のアニメーションと競合して特定できない場合は `d.deferDragViewCleanupPostAnimation = false`（Folder `:1624`）。**どの経路でも必ずどちらかを実行する。**
+- **`onDragEnter(d)`**: `prevTargetIndex = -1`。live preview 有効時は `pendingOrder` を現在表示順からシード。
+- **`onDragOver(d)`**（live preview = D3(i) を入れる場合のみ実質処理）: `computeTargetIndex` → 前回と変わったら `reorderAlarm` を張り直し（Folder `:1186-1190`）、発火で `pendingOrder` を move → `mainList` に暫定順を渡して `updateAdapterItems()` → DiffUtil の move アニメーションが「アイコンが避ける」フィードバックになる。DB は書かない。
+- **`onDragExit(d)`**: `reorderAlarm.cancelAlarm()`。live preview 中なら **`pendingOrder` を破棄して元の順へ戻す**（`onAppsUpdated()` を呼ぶだけ。DB 未書き込みなので戻る）。これを怠ると、バーへ運んで `Uninstall` した場合に途中経過の並び替えが画面に残る。
+- **`isDropEnabled()`**: true（ゲートは acceptDrop 側）。`getHitRectRelativeToDragLayer` は現状どおり全体矩形（バーは後登録優先で先に取られる）。
+
+#### 10.11.5 端 auto-scroll（D3(ii)）
+
+Folder の端ゾーン+alarm パターン（`:1201-1236`）を RV 縦スクロールに読み替える: visual center が RV 上端/下端ゾーン（例: 行高1つ分）に入ったら scroll alarm を開始し、発火ごとに `scrollBy(0, ±step)` して再セット（ゾーン内にいる間継続）。スクロール中は reorder alarm をキャンセルし `prevTargetIndex` を無効化する（Folder の `mScrollPauseAlarm` / target 巻き戻し `:1234-1235` に相当）。ゾーンを抜けたら alarm 停止。
+
+#### 10.11.6 実装順（D2 修正 → D3）
+
+1. **D2-fix（最小・バグ修正）**: 位置解決を `acceptDrop` へ移動 + visual center 化 + 最近傍フォールバック + 挿入 index 方式 + **全経路の DragView 後始末**。live preview なし。受け入れ条件: grid 上のどこで離しても（アイコン間の余白含む）ゴーストが残らず、アイコン上/近傍なら並び替えが確定し再起動後も保持される。バー drop・Home 由来 drag は従来どおり。
+2. **D3(i) live preview**: reorder alarm + pendingOrder + onDragExit revert。
+3. **D3(ii) edge auto-scroll**、**D3(iii)** drop 時の `animateViewIntoPosition` 着地アニメーション磨き。
+
+各ステップごとに compile + 実機確認（ゴースト残留の再確認を必須項目にする）。
+
+### 10.12 D2-fix 実装記録（2026-07-06）
+
+§10.10/§10.11 で確定した2つの原因（DragView 後始末契約違反によるゴースト、`findChildViewUnder` の early return による並び替え不成立）を修正した。
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/lawnchair/allapps/views/SearchContainerView.kt` | 位置解決を `onDrop()` から `acceptDrop()` へ移動し、成功時のみ `resolvedInsertIndex` にキャッシュして true を返す（`Workspace.acceptDrop` の `mDropToLayout` キャッシュと同じパターン）。`resolveTargetApp()` で `dragObject.getVisualCenter()`（DragView 視覚中心）を使用し、`findChildViewUnder` が null の場合は可視子 View を距離で走査する最近傍フォールバックを追加。`onDrop()` の先頭で必ず `dragObject.deferDragViewCleanupPostAnimation = false` を設定（アニメーション着地は D3(iii) で検討、まずはゴーストを確実に防ぐことを優先） |
+| `lawnchair/src/app/lawnchair/allapps/LawnchairAlphabeticalAppsList.kt` | `reorderApp(moved, insertBeforeComponentKey: String)` を `reorderApp(moved, insertIndex: Int)` へ変更（挿入位置を component key ではなく index で受け取る。最近傍フォールバックや将来の「末尾へ drop」等を index で統一的に表現できる）。共通の `getOrderedApps()`（フォルダ除外済みの現在表示順）を新設し、`reorderApp` と `SearchContainerView` の対象特定の両方から利用 |
+
+設計上の補足（ユーザー指摘を実装に反映した点）:
+
+- **座標系の訂正**: `dragObject.getVisualCenter()` は `d.x`/`d.y` から計算されるため、`d.x`/`d.y` と同じ座標系（`getDropView()` = `SearchContainerView` ローカル、`DragController.findDropTarget()` で変換済み）になる。`Folder.getTargetRank()` も DragLayer への追加変換なしに `getVisualCenter()` の結果をそのまま使っている（自身の padding を引くだけ）ことから確認した。当初の設計メモ（§10.11.3）にあった「DragLayer 座標としての追加変換」は不要と判断し、`Utilities.mapCoordInSelfToDescendant(recyclerView, this, coord)`（root = `this`）で直接 RecyclerView ローカルへ変換する実装にした。
+- **DragView 後始末**: `DragController.dispatchDropComplete()`（`dragndrop/DragController.java:291-297`）のコメント通り、`acceptDrop()` が false を返した場合は `DragController` 自身が `deferDragViewCleanupPostAnimation = false` を設定してくれる（既存動作）。したがって今回の修正対象は「`acceptDrop()` が true を返した場合の後始末」のみで、`onDrop()` の先頭で無条件に `deferDragViewCleanupPostAnimation = false` を設定することで対応した。`Folder` が行っている `animateViewIntoPosition` による着地アニメーションは D3(iii) に先送り。
+- `acceptDrop()` は `DragController.drop()`（`dragndrop/DragController.java:526-568`）から `onDrop()` の直前に一度だけ同期的に呼ばれることを確認済みなので、インスタンスフィールドでのキャッシュは安全。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: `BUILD SUCCESSFUL in 24s`。新規/変更ファイル起因のエラーなし。
+
+未実施: 実機確認（ゴーストが残らないか、アイコン間の余白に落としても最近傍で解決されるか、再起動後の永続化、検索/fast scroll/Work タブ/フォルダ/バー/Home 由来 drag の回帰確認）。
+
+### 10.13 実機確認結果（2026-07-06）: ゴースト解消を確認
+
+`installLawnWithQuickstepGithubDebug` で実機（`SC-52C - 16`）へインストール、起動・プロセス生存・crash ログなしを確認。
+
+ユーザー確認: **§10.10 で報告されたゴースト（当たり判定のないアイコン画像が残る）は解消**。`onDrop()` 冒頭での無条件 `deferDragViewCleanupPostAnimation = false` が機能している。
+
+### 10.14 実機確認結果（2026-07-06）: 残り3項目も完了
+
+| 項目 | 結果 |
+|---|---|
+| 最近傍フォールバック（アイコン間の余白にドロップ） | **完了** |
+| 再起動後の永続化 | **完了** |
+| 回帰確認（検索 / fast scroll / Work タブ / フォルダ / バー / Home 由来 drag） | **完了** |
+
+D2（アプリ同士のドラッグによる並び替え）は、当初の受け入れ条件（§10.1「App Drawer 内でアプリアイコンをドラッグして別の位置に落とすと、並び順が変わり、再起動後も保持される」）を実機で満たしたことを確認した。ゴースト・並び替え不成立というブロッカーも解消済み。
+
+残りは D3（リアルタイム入れ替えプレビュー、edge auto-scroll、着地アニメーション。§10.4/§10.11.5 参照、いずれも UX の磨きでD2の受け入れ条件には含まれない）と、フォルダ作成（Phase E）・フォルダ出し入れ（Phase F）。

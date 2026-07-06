@@ -291,11 +291,14 @@ public class ActivityAllAppsContainerView<T extends Context & ActivityContext>
                 new LawnchairAlphabeticalAppsList<>(mActivityContext,
                         mAllAppsStore,
                         null,
-                        mPrivateProfileManager)));
+                        mPrivateProfileManager,
+                        /* isMainList= */ true)));
         mAH.set(AdapterHolder.WORK, new AdapterHolder(AdapterHolder.WORK,
-                new LawnchairAlphabeticalAppsList<>(mActivityContext, mAllAppsStore, mWorkManager, null)));
+                new LawnchairAlphabeticalAppsList<>(mActivityContext, mAllAppsStore, mWorkManager, null,
+                        /* isMainList= */ false)));
         mAH.set(SEARCH, new AdapterHolder(SEARCH,
-                new LawnchairAlphabeticalAppsList<>(mActivityContext, mAllAppsStore, null, null)));
+                new LawnchairAlphabeticalAppsList<>(mActivityContext, mAllAppsStore, null, null,
+                        /* isMainList= */ false)));
 
         getLayoutInflater().inflate(R.layout.all_apps_content, this);
         mHeader = findViewById(R.id.all_apps_header);

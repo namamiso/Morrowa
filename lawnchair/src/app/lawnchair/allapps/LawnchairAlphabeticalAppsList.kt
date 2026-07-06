@@ -6,6 +6,8 @@ import androidx.activity.ComponentActivity
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import app.lawnchair.data.AppDatabase
+import app.lawnchair.data.appdrawer.DrawerAppOrderEntity
 import app.lawnchair.data.folder.model.FolderOrderUtils
 import app.lawnchair.data.folder.model.FolderViewModel
 import app.lawnchair.launcher
@@ -16,6 +18,7 @@ import com.android.launcher3.InvariantDeviceProfile.OnIDPChangeListener
 import com.android.launcher3.allapps.AllAppsStore
 import com.android.launcher3.allapps.AlphabeticalAppsList
 import com.android.launcher3.allapps.BaseAllAppsAdapter.AdapterItem
+import com.android.launcher3.allapps.BaseAllAppsAdapter.VIEW_TYPE_ICON
 import com.android.launcher3.allapps.PrivateProfileManager
 import com.android.launcher3.allapps.WorkProfileManager
 import com.android.launcher3.model.data.AppInfo
@@ -24,6 +27,9 @@ import com.android.launcher3.model.data.ItemInfo
 import com.android.launcher3.views.ActivityContext
 import com.patrykmichalik.opto.core.onEach
 import java.util.function.Predicate
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach as onEachFlow
+import kotlinx.coroutines.launch
 
 @Suppress("SYNTHETIC_PROPERTY_WITHOUT_JAVA_ORIGIN")
 class LawnchairAlphabeticalAppsList<T>(
@@ -31,6 +37,7 @@ class LawnchairAlphabeticalAppsList<T>(
     private val appsStore: AllAppsStore<T>,
     workProfileManager: WorkProfileManager?,
     privateProfileManager: PrivateProfileManager?,
+    private val isMainList: Boolean,
 ) : AlphabeticalAppsList<T>(context, appsStore, workProfileManager, privateProfileManager),
     OnIDPChangeListener,
     DefaultLifecycleObserver
@@ -46,6 +53,10 @@ class LawnchairAlphabeticalAppsList<T>(
     private var folderList = mutableListOf<FolderInfo>()
     private val filteredList = mutableListOf<AppInfo>()
 
+    // Morrowa: persisted manual order for the main app list only (see §10.3 of
+    // docs/Morrowa_AppDrawer_編集モード_実装計画.md). Empty until the user first reorders.
+    private var drawerAppOrder: Map<String, Int> = emptyMap()
+
     init {
         context.launcher.deviceProfile.inv.addOnChangeListener(this)
         (context as? LifecycleOwner)?.lifecycle?.addObserver(this)
@@ -58,10 +69,84 @@ class LawnchairAlphabeticalAppsList<T>(
             Log.w(TAG, "Failed to initialize hidden apps", t)
         }
         observeFolders()
+        if (isMainList) {
+            observeDrawerAppOrder()
+        }
+    }
+
+    private fun observeDrawerAppOrder() {
+        AppDatabase.INSTANCE.get(context).drawerAppOrderDao().getAll()
+            .onEachFlow { entities ->
+                drawerAppOrder = entities.associate { it.componentKey to it.rank }
+                onAppsUpdated()
+            }
+            .launchIn(context.launcher.lifecycleScope)
+    }
+
+    override fun getAppSortComparator(): Comparator<AppInfo> {
+        val alphabetical = super.getAppSortComparator()
+        // Manual order only applies to the main list, in manual drawer-folder mode, once the
+        // user has reordered at least once (§10.3 decisions 3-4).
+        if (!isMainList || drawerAppOrder.isEmpty() || !prefs.drawerList.get()) {
+            return alphabetical
+        }
+        return Comparator { a, b ->
+            val rankA = drawerAppOrder[a.toComponentKey().toString()]
+            val rankB = drawerAppOrder[b.toComponentKey().toString()]
+            when {
+                rankA != null && rankB != null -> rankA.compareTo(rankB)
+                rankA != null -> -1
+                rankB != null -> 1
+                else -> alphabetical.compare(a, b)
+            }
+        }
     }
 
     override fun onDestroy(owner: LifecycleOwner) {
         context.launcher.deviceProfile.inv.removeOnChangeListener(this)
+    }
+
+    /** Returns the app icon rendered at [position] in this list's current adapter items, or null
+     * if that position isn't an app icon (e.g. a folder or divider). Used by
+     * [app.lawnchair.allapps.views.SearchContainerView]'s drag-to-reorder drop handling. */
+    fun getAppAtAdapterPosition(position: Int): AppInfo? {
+        val item = mAdapterItems.getOrNull(position) ?: return null
+        return if (item.viewType == VIEW_TYPE_ICON) item.itemInfo else null
+    }
+
+    /**
+     * Returns the current apps-only order (App Drawer folders excluded), i.e. what
+     * [app.lawnchair.allapps.views.SearchContainerView] resolves drop-target indices against.
+     */
+    fun getOrderedApps(): List<AppInfo> = mAdapterItems
+        .asSequence()
+        .filter { it.viewType == VIEW_TYPE_ICON && it.itemInfo != null }
+        .map { it.itemInfo }
+        .distinctBy { it.toComponentKey().toString() }
+        .toList()
+
+    /**
+     * Moves [moved] to [insertIndex] (clamped to the valid range) within the main list's manual
+     * order, seeding the order from the current display order first if this is the first manual
+     * reorder. Persists to [app.lawnchair.data.appdrawer.service.DrawerAppOrderDao] and refreshes
+     * the list. No-op if this isn't the main list.
+     */
+    fun reorderApp(moved: AppInfo, insertIndex: Int) {
+        if (!isMainList) return
+        val movedKey = moved.toComponentKey().toString()
+
+        val currentOrder = getOrderedApps().toMutableList()
+        currentOrder.removeAll { it.toComponentKey().toString() == movedKey }
+        currentOrder.add(insertIndex.coerceIn(0, currentOrder.size), moved)
+
+        val entities = currentOrder.mapIndexed { index, app ->
+            DrawerAppOrderEntity(componentKey = app.toComponentKey().toString(), rank = index)
+        }
+        drawerAppOrder = entities.associate { it.componentKey to it.rank }
+        context.launcher.lifecycleScope.launch {
+            AppDatabase.INSTANCE.get(context).drawerAppOrderDao().replaceAll(entities)
+        }
+        onAppsUpdated()
     }
 
     private fun observeFolders() {

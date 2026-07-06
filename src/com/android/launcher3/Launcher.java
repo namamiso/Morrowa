@@ -1357,6 +1357,11 @@ public class Launcher extends StatefulActivity<LauncherState>
         mScrimView = findViewById(R.id.scrim_view);
 
         // Setup the drag controller (drop targets have to be added in reverse order in priority)
+        // Morrowa: App Drawer reordering (SearchContainerView implements DropTarget) sits below
+        // the drop target bar buttons but above Workspace's default-drop-target fallback.
+        if (mAppsView instanceof DropTarget appsDropTarget) {
+            mDragController.addDropTarget(appsDropTarget);
+        }
         mDropTargetBar.setup(mDragController);
         mAllAppsController.setupViews(mScrimView, mAppsView);
 

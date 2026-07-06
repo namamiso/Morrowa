@@ -933,3 +933,60 @@ Home 画面のフォルダ作成判定は `Workspace.manageFolderFeedback()`（`
   - 既存フォルダへの追加（フォルダアイコンへの重ね drop）は Phase F のまま据え置く。
 
 この2点は元計画の D3(iii)（フライバック含む着地演出）と Phase E（フォルダ作成）に相当するが、実装に入る前に「Home 画面の実装をどこまで踏襲するか」を Codex へ渡すタスクとして明確化しておく必要がある。次回セッションでは、まず 10.16.1（アニメーション、影響範囲が小さい）から着手し、その後 10.16.2（フォルダ作成、`PreviewBackground` の扱いなど未決定事項が残る）に進む想定。
+
+→ 実装可能な粒度の詳細設計を §10.17 にまとめた。
+
+### 10.17 追加要望2点の詳細設計（2026-07-06・コード未変更）
+
+§10.16 の2要望を、参照実装の正確な仕様（今回追加調査済み）に基づいて実装タスクに落とせる粒度まで詰めた。
+
+#### 10.17.1 要望1: drop 時の着地アニメーション（D3(iii)）
+
+**参照実装の確定事項:**
+
+- 使うオーバーロードは `DragLayer.animateViewIntoPosition(DragView, int[] pos, float alpha, float scaleX, float scaleY, int animationEndStyle, Runnable onFinishRunnable, int duration)`（`DragLayer.java:239-244`）。DragLayer 相対の生ピクセル座標へ飛ばす汎用版で、`ANIMATION_END_DISAPPEAR`（`DragLayer.java:77`）を渡すとアニメーション終了時に DragView が自動除去される（`:397`）。`CellLayoutLayoutParams` 前提の child 版（`:250-306`）は使えない。
+- child 版の内部処理（`:280-303`）が座標・スケール計算とダブり防止の**そのまま流用できる手本**になる:
+  - `BubbleTextView` は `DraggableView` を実装しているので、`getWorkspaceVisualDragBounds(destRect)` で「アイコンの視覚矩形」を取得できる（`:286`）。目標座標は View 左上ではなくこの視覚矩形基準で計算する。
+  - 目標スケール = `destRect.width() / (dragView.getMeasuredWidth() - dragView.getBlurSizeOutline())`（`:290-291`）+ スケール中心補正（`:295-299`）。
+  - **飛行中はターゲットの実 View を `INVISIBLE` にし、完了時に `VISIBLE` へ戻す**（`:302-303`）。これをやらないと、DiffUtil の move アニメーションで動く実アイコンと DragView の**二重表示**になる。
+
+**実装手順（`SearchContainerView.onDrop()` の reorder 確定パスを変更）:**
+
+1. `mainList.reorderApp(...)` で並び順を確定（現状どおり。`onAppsUpdated()` → DiffUtil 配信までは同期だが、**RecyclerView のレイアウトは次フレーム**なのでこの時点で新しい View 位置は取れない）。
+2. `dragObject.deferDragViewCleanupPostAnimation` は **true のまま**にし（既定値）、`recyclerView` に `doOnPreDraw`（`androidx.core.view.OneShotPreDrawListener`）を張る。
+3. pre-draw コールバック内（新レイアウト確定後）:
+   - 移動したアプリの新しい adapter position を `mainList` から逆引き → `findViewHolderForAdapterPosition(pos)` で `itemView`（`BubbleTextView`）を取得。
+   - 取得できたら: `dragLayer.getDescendantCoordRelativeToSelf(itemView, coord)` で DragLayer 相対座標を算出し、`getWorkspaceVisualDragBounds` + child 版と同じスケール計算で `toX/toY/toScale` を決定。`itemView.setVisibility(INVISIBLE)` → `animateViewIntoPosition(dragView, pos, 1f, toScale, toScale, ANIMATION_END_DISAPPEAR, { itemView.setVisibility(VISIBLE) }, -1)`（duration -1 = 距離ベース算出に任せる）。
+   - 取得できなかったら（画面外へ挿入・ViewHolder 未生成など）: **`dragObject.dragView.remove()` を即時呼ぶ**。
+4. **後始末保証がこの設計の生命線**: §10.10 原因1の再発を防ぐため、「defer=true にしたら、pre-draw コールバックが必ず animate か remove のどちらかに到達する」ことを不変条件にする。コールバック内は全経路で処理し、例外時も remove する（try-finally 相当）。eligibility 不成立などで reorder しない経路は従来どおり defer=false の即消しのまま。
+
+受け入れ条件: drop するとアイコンが着地位置へ滑らかに移動して消え、実アイコンと二重表示されない。画面外への挿入・連打・バー drop・Home 由来 drag でゴーストが出ない。
+
+#### 10.17.2 要望2: 重ねてフォルダ作成（Phase E 第1弾）
+
+**参照実装の確定事項:**
+
+- Home の判定は「target セル中心からの距離 ≤ `getFolderCreationRadius()`」（`Workspace.manageFolderFeedback()`、`Workspace.java:2977-2984`）。半径 = `(reorderRadius + ICON_VISIBLE_AREA_FACTOR * iconSizePx / 2) / 2`（`CellLayout.java:950-955`）。半径外に出たら `DRAG_MODE_NONE` に戻す（ヒステリシスなし、同一半径で in/out）。
+- **Lawnchair のフォルダ作成 API には「新規フォルダ + 中身を一括作成」がまだ無い**:
+  - `FolderService.saveFolderInfo()` は**フォルダ行（title）しか書かない**（`FolderService.kt:54-56`）。中身は `updateFolderWithItems(folderInfoId, ...)`（`:45-52`）だが**既存 id が必要**。
+  - `FolderDao.insertFolder()` は戻り値なし（`FolderDao.kt:19`）なので、新規 id を取れない。**`@Insert suspend fun insertFolderReturningId(folder): Long` を DAO に追加**し、`FolderService.createFolderWithItems(title, apps): Int`（insert → 返った id で items を rank=index で書き込み）と `FolderViewModel.createFolderWithApps(title, apps)`（実行後 `reloadHelper.reloadGrid()`、既存メソッドと同じ作法）を新設する必要がある。
+  - 既定フォルダ名は設定画面の新規作成と同じ `R.string.my_folder_label`（`AppDrawerFoldersPreference.kt:183`）を使う。リネームは既存の設定画面経由（MVP）。
+- 表示への反映は既存経路で完結する: `foldersLiveData` → `LawnchairAlphabeticalAppsList.observeFolders()` → 再構築。`prefs.folderApps`（`pref_hideFolderApps`、**デフォルト true**）が true なら、フォルダ入りしたアプリは A-Z grid から消える（`LawnchairAlphabeticalAppsList.kt:128-133`）。2アプリ入りフォルダは表示条件 `folderApps.size > 1`（`:122`）を満たす。
+
+**実装手順:**
+
+1. **判定（`SearchContainerView` の target 解決を拡張）**: `resolveTargetApp()` が返す「最近傍アイコン + 挿入 index」に加えて **visual center と target View の視覚中心（`getWorkspaceVisualDragBounds` の中心）との距離**を返す。しきい値 `folderCreationRadius = (min(cellW, cellH) / 2 + ICON_VISIBLE_AREA_FACTOR * dp.allAppsIconSizePx / 2) / 2`（`CellLayout.java:952-954` の式の RV 読み替え。`cellW/cellH` は RV の実測セルサイズ）。距離 ≤ 半径 → `CREATE_FOLDER` モード、それ以外 → `REORDER` モード。ドラッグ中アプリ自身は target から除外（現状どおり）。
+2. **`onDragOver()` のモード管理（`manageFolderFeedback` 相当）**: モードが `CREATE_FOLDER` に入ったら (a) reorder プレビュー alarm をキャンセル（Workspace が folder モード中に reorder を走らせないのと同じ）、(b) target アイコンに視覚フィードバック。MVP は `PreviewBackground`（CellLayout 前提）を移植せず、**target `BubbleTextView` の scale アニメーション（例: 1.0→1.15、150ms）**で代替する。モードが外れたら scale を戻し、通常の reorder プレビューへ復帰。target が変わった場合も戻してから次へ適用。
+3. **`onDrop()` の分岐**: `CREATE_FOLDER` モードなら `reorderApp()` を呼ばず、`mainList` 経由で `FolderViewModel.createFolderWithApps(getString(R.string.my_folder_label), listOf(targetApp, draggedApp))` を呼ぶ。DragView は要望1の着地アニメーションを target アイコン位置に対して再利用（reloadGrid 完了前に target View はまだ画面にあるので座標は取れる。取れなければ即 remove）。scale フィードバックは必ず戻す。
+4. **後片付け**: `drawerAppOrder`（手動並び順テーブル）に残る2アプリの rank は**そのまま残してよい**（comparator は存在するアプリしか比較しないため無害。フォルダから出す Phase F でそのまま復元位置として機能する副次メリットもある）。`prefs.drawerListOrder`（フォルダ同士の順序）に新 id を追加しない場合、新フォルダはフォルダ節の**末尾**に並ぶ（`getSortedFolders()` `.kt:74-81` で未登録 id は `Int.MAX_VALUE`）— MVP はこれを仕様とする。
+5. **`onDragExit()` / キャンセル経路**: モードを `NONE` に戻し scale フィードバックを解除（`dragComplete=false` のときのみ。§10.15 の revert パターンと同じ分岐）。
+
+**仕様として明示しておく制約（Home との差分、実装前に合意する）:**
+
+- **新規フォルダは drop した位置ではなく、リスト先頭のフォルダ節（の末尾）に現れる。** Lawnchair の App Drawer フォルダは構造上リスト先頭のフォルダ節にまとまって表示されるため（`LawnchairAlphabeticalAppsList.addAppsWithSections()`）、Home のように「その場にフォルダが生まれる」動きにはならない。その場に置きたい場合はフォルダを手動順リストへ interleave する大きな設計変更が必要で、Phase E のスコープ外とする。
+- フォルダ作成直後の反映は `reloadGrid()`（全体リロード）経由なので、DiffUtil の部分アニメーションではなく一瞬でリストが組み変わる。
+- 既存フォルダへの追加（フォルダアイコンに重ねる = `willAddToExistingUserFolder` 相当）は Phase F のまま。
+
+**実装順**: 要望1（着地アニメーション）→ 要望2の 1〜2（判定+フィードバック、drop はまだ reorder のみ）→ 要望2の 3〜5（フォルダ作成接続）。要望2は DAO/Service/ViewModel の追加（純増・既存無改造）とドラッグ側の分岐が分離できるので、Codex タスクも「基盤」「接続」の2つに分ける。
+
+受け入れ条件（要望2全体）: アイコンを別アイコンの中心近くに重ねると target が拡大表示され、その状態で drop すると2アプリ入りの新規 App Drawer フォルダがフォルダ節に作られる。浅い重なり（半径外）では従来どおり並び替えになる。フォルダ作成後にゴーストが残らず、Room の `Folders`/`FolderItems` に反映され、再起動後も保持される。設定画面のフォルダ一覧にも新フォルダが見える。

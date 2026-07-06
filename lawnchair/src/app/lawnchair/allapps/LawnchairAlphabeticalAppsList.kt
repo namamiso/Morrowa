@@ -57,6 +57,11 @@ class LawnchairAlphabeticalAppsList<T>(
     // docs/Morrowa_AppDrawer_編集モード_実装計画.md). Empty until the user first reorders.
     private var drawerAppOrder: Map<String, Int> = emptyMap()
 
+    // Morrowa D3(i): in-memory-only order shown live while a reorder drag is in progress (see
+    // SearchContainerView#onDragOver). Not persisted until commitPendingReorder(); reverted by
+    // cancelPendingReorder() if the drag ends without a drop here. Null when no drag is active.
+    private var pendingOrder: MutableList<AppInfo>? = null
+
     init {
         context.launcher.deviceProfile.inv.addOnChangeListener(this)
         (context as? LifecycleOwner)?.lifecycle?.addObserver(this)
@@ -85,9 +90,27 @@ class LawnchairAlphabeticalAppsList<T>(
 
     override fun getAppSortComparator(): Comparator<AppInfo> {
         val alphabetical = super.getAppSortComparator()
-        // Manual order only applies to the main list, in manual drawer-folder mode, once the
-        // user has reordered at least once (§10.3 decisions 3-4).
-        if (!isMainList || drawerAppOrder.isEmpty() || !prefs.drawerList.get()) {
+        if (!isMainList) return alphabetical
+
+        pendingOrder?.let { pending ->
+            val rank = pending.withIndex().associate { (index, app) ->
+                app.toComponentKey().toString() to index
+            }
+            return Comparator { a, b ->
+                val rankA = rank[a.toComponentKey().toString()]
+                val rankB = rank[b.toComponentKey().toString()]
+                when {
+                    rankA != null && rankB != null -> rankA.compareTo(rankB)
+                    rankA != null -> -1
+                    rankB != null -> 1
+                    else -> alphabetical.compare(a, b)
+                }
+            }
+        }
+
+        // Manual order only applies in manual drawer-folder mode, once the user has reordered
+        // at least once (§10.3 decisions 3-4).
+        if (drawerAppOrder.isEmpty() || !prefs.drawerList.get()) {
             return alphabetical
         }
         return Comparator { a, b ->
@@ -127,19 +150,17 @@ class LawnchairAlphabeticalAppsList<T>(
 
     /**
      * Moves [moved] to [insertIndex] (clamped to the valid range) within the main list's manual
-     * order, seeding the order from the current display order first if this is the first manual
-     * reorder. Persists to [app.lawnchair.data.appdrawer.service.DrawerAppOrderDao] and refreshes
-     * the list. No-op if this isn't the main list.
+     * order, seeding the order from the current display order (or the live preview order, if a
+     * reorder drag is in progress) first if this is the first manual reorder. Persists to
+     * [app.lawnchair.data.appdrawer.service.DrawerAppOrderDao] and refreshes the list. No-op if
+     * this isn't the main list.
      */
     fun reorderApp(moved: AppInfo, insertIndex: Int) {
         if (!isMainList) return
-        val movedKey = moved.toComponentKey().toString()
+        val reordered = movedTo(pendingOrder ?: getOrderedApps(), moved, insertIndex)
+        pendingOrder = null
 
-        val currentOrder = getOrderedApps().toMutableList()
-        currentOrder.removeAll { it.toComponentKey().toString() == movedKey }
-        currentOrder.add(insertIndex.coerceIn(0, currentOrder.size), moved)
-
-        val entities = currentOrder.mapIndexed { index, app ->
+        val entities = reordered.mapIndexed { index, app ->
             DrawerAppOrderEntity(componentKey = app.toComponentKey().toString(), rank = index)
         }
         drawerAppOrder = entities.associate { it.componentKey to it.rank }
@@ -147,6 +168,46 @@ class LawnchairAlphabeticalAppsList<T>(
             AppDatabase.INSTANCE.get(context).drawerAppOrderDao().replaceAll(entities)
         }
         onAppsUpdated()
+    }
+
+    /**
+     * Morrowa D3(i): starts a live (in-memory only, not persisted) reorder preview seeded from
+     * the current display order, if one isn't already in progress. Call [previewReorder] as the
+     * drag moves and either [reorderApp] (to commit) or [cancelPendingReorder] (to revert) when
+     * the drag ends.
+     */
+    fun beginPendingReorder() {
+        if (!isMainList || pendingOrder != null) return
+        pendingOrder = getOrderedApps().toMutableList()
+    }
+
+    /**
+     * Morrowa D3(i): live-updates the in-memory preview order (no DB write) and refreshes the
+     * list so icons visibly shift out of the way, matching Folder#realTimeReorder's real-time
+     * feedback. No-op if [beginPendingReorder] hasn't been called.
+     */
+    fun previewReorder(moved: AppInfo, insertIndex: Int) {
+        val current = pendingOrder ?: return
+        pendingOrder = movedTo(current, moved, insertIndex).toMutableList()
+        onAppsUpdated()
+    }
+
+    /**
+     * Morrowa D3(i): discards the live preview (e.g. the drag left the drawer, or ended on a
+     * different drop target such as the Uninstall/Add-to-home-screen bar) and reverts to the
+     * persisted order.
+     */
+    fun cancelPendingReorder() {
+        if (pendingOrder == null) return
+        pendingOrder = null
+        onAppsUpdated()
+    }
+
+    private fun movedTo(order: List<AppInfo>, moved: AppInfo, insertIndex: Int): List<AppInfo> {
+        val movedKey = moved.toComponentKey().toString()
+        val result = order.filterNot { it.toComponentKey().toString() == movedKey }.toMutableList()
+        result.add(insertIndex.coerceIn(0, result.size), moved)
+        return result
     }
 
     private fun observeFolders() {

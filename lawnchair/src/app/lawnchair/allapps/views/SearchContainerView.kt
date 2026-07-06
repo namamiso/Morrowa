@@ -8,7 +8,9 @@ import androidx.recyclerview.widget.RecyclerView
 import app.lawnchair.allapps.LawnchairAlphabeticalAppsList
 import app.lawnchair.preferences.PreferenceManager
 import app.lawnchair.search.LawnchairSearchUiDelegate
+import com.android.launcher3.Alarm
 import com.android.launcher3.DropTarget
+import com.android.launcher3.OnAlarmListener
 import com.android.launcher3.Utilities
 import com.android.launcher3.allapps.ActivityAllAppsContainerView
 import com.android.launcher3.allapps.AllAppsRecyclerView
@@ -21,7 +23,7 @@ import com.android.launcher3.model.data.AppInfo
  * `res/layout/all_apps.xml`), so it implements [DropTarget] here rather than on the AOSP-derived
  * [ActivityAllAppsContainerView] / [LauncherAllAppsContainerView] base classes. Dropping an app
  * dragged from the App Drawer onto another app here reorders the main list's manual order
- * (Phase D2, see docs/Morrowa_AppDrawer_編集モード_実装計画.md §10, esp. §10.10/§10.11 for why
+ * (Phase D2/D3, see docs/Morrowa_AppDrawer_編集モード_実装計画.md §10, esp. §10.10/§10.11 for why
  * position resolution happens in [acceptDrop] rather than [onDrop], and why every accepted drop
  * must clear [DropTarget.DragObject.deferDragViewCleanupPostAnimation]). Registered in
  * `Launcher#setupViews` between Workspace and the drop target bar so bar buttons (Uninstall /
@@ -38,19 +40,19 @@ class SearchContainerView @JvmOverloads constructor(
     // DragController.java:526-568), the same pattern Workspace uses for mDropToLayout.
     private var resolvedInsertIndex: Int = -1
 
+    // Morrowa D3(i): live reorder preview throttle, mirroring Folder#mReorderAlarm /
+    // Folder#REORDER_DELAY (src/com/android/launcher3/folder/Folder.java:196,208).
+    private val reorderAlarm = Alarm()
+    private var prevTargetIndex: Int = -1
+
     override fun createSearchUiDelegate() = LawnchairSearchUiDelegate(this)
 
     override fun isDropEnabled(): Boolean = true
 
     override fun acceptDrop(dragObject: DropTarget.DragObject): Boolean {
         resolvedInsertIndex = -1
-        if (dragObject.dragSource !is ActivityAllAppsContainerView<*>) return false
-        val movedApp = dragObject.dragInfo as? AppInfo ?: return false
-        if (isSearching) return false
-        if (!isPersonalTab) return false
-        if (!PreferenceManager.getInstance(context).drawerList.get()) return false
-
-        val mainList = getPersonalAppList() as? LawnchairAlphabeticalAppsList<*> ?: return false
+        val mainList = eligibleMainList(dragObject) ?: return false
+        val movedApp = dragObject.dragInfo as AppInfo
         val recyclerView = activeRecyclerView ?: return false
         val targetApp = resolveTargetApp(dragObject, recyclerView, mainList, movedApp) ?: return false
 
@@ -65,9 +67,10 @@ class SearchContainerView @JvmOverloads constructor(
     override fun onDrop(dragObject: DropTarget.DragObject, options: DragOptions) {
         // Contract (DragController#dispatchDropComplete): once acceptDrop() returns true, this
         // drop target owns DragView cleanup. Landing animation (Folder#animateViewIntoPosition
-        // equivalent) is a D3 refinement; clearing immediately is always correct and never
-        // leaves a "ghost" DragView behind.
+        // equivalent) is a further D3 refinement; clearing immediately is always correct and
+        // never leaves a "ghost" DragView behind.
         dragObject.deferDragViewCleanupPostAnimation = false
+        reorderAlarm.cancelAlarm()
 
         val movedApp = dragObject.dragInfo as? AppInfo ?: return
         val mainList = getPersonalAppList() as? LawnchairAlphabeticalAppsList<*> ?: return
@@ -76,16 +79,61 @@ class SearchContainerView @JvmOverloads constructor(
         mainList.reorderApp(movedApp, insertIndex)
     }
 
-    override fun onDragEnter(dragObject: DropTarget.DragObject) {}
+    override fun onDragEnter(dragObject: DropTarget.DragObject) {
+        prevTargetIndex = -1
+        reorderAlarm.cancelAlarm()
+    }
 
-    override fun onDragOver(dragObject: DropTarget.DragObject) {}
+    override fun onDragOver(dragObject: DropTarget.DragObject) {
+        val mainList = eligibleMainList(dragObject) ?: run {
+            (getPersonalAppList() as? LawnchairAlphabeticalAppsList<*>)?.cancelPendingReorder()
+            return
+        }
+        val movedApp = dragObject.dragInfo as AppInfo
+        val recyclerView = activeRecyclerView ?: return
+        mainList.beginPendingReorder()
 
-    override fun onDragExit(dragObject: DropTarget.DragObject) {}
+        val targetApp = resolveTargetApp(dragObject, recyclerView, mainList, movedApp) ?: return
+        val targetIndex = mainList.getOrderedApps()
+            .indexOfFirst { it.toComponentKey() == targetApp.toComponentKey() }
+        if (targetIndex < 0 || targetIndex == prevTargetIndex) return
+
+        prevTargetIndex = targetIndex
+        reorderAlarm.cancelAlarm()
+        reorderAlarm.setOnAlarmListener(OnAlarmListener {
+            mainList.previewReorder(movedApp, targetIndex)
+        })
+        reorderAlarm.setAlarm(REORDER_PREVIEW_DELAY_MS)
+    }
+
+    override fun onDragExit(dragObject: DropTarget.DragObject) {
+        reorderAlarm.cancelAlarm()
+        // dragComplete is true when this onDragExit fires as part of a drop landing on this same
+        // target (DragController#drop sets it before the "about to accept/drop" onDragExit call,
+        // dragndrop/DragController.java:538,553) -- in that case leave the preview in place for
+        // onDrop() to commit. Only a genuine exit (moving to another drop target, or cancelling)
+        // should revert it.
+        if (!dragObject.dragComplete) {
+            (getPersonalAppList() as? LawnchairAlphabeticalAppsList<*>)?.cancelPendingReorder()
+        }
+    }
 
     override fun prepareAccessibilityDrop() {}
 
     override fun getHitRectRelativeToDragLayer(outRect: Rect) {
         mActivityContext.dragLayer.getDescendantRectRelativeToSelf(this, outRect)
+    }
+
+    /** Returns the main app list if [dragObject] is eligible for App Drawer reordering, else
+     * null: must originate from the App Drawer, carry an [AppInfo], and land on the personal
+     * tab's A-Z list (not search, not Work/Private space, manual-folder mode only). */
+    private fun eligibleMainList(dragObject: DropTarget.DragObject): LawnchairAlphabeticalAppsList<*>? {
+        if (dragObject.dragSource !is ActivityAllAppsContainerView<*>) return null
+        if (dragObject.dragInfo !is AppInfo) return null
+        if (isSearching) return null
+        if (!isPersonalTab) return null
+        if (!PreferenceManager.getInstance(context).drawerList.get()) return null
+        return getPersonalAppList() as? LawnchairAlphabeticalAppsList<*>
     }
 
     /**
@@ -102,7 +150,7 @@ class SearchContainerView @JvmOverloads constructor(
     ): AppInfo? {
         // dragObject.x/y (and thus getVisualCenter, derived from them) are already relative to
         // this view: DragController#findDropTarget maps raw touch coordinates into getDropView()
-        // (defaults to `this`) local space before invoking acceptDrop/onDrop.
+        // (defaults to `this`) local space before invoking acceptDrop/onDrop/onDragOver.
         val coord = dragObject.getVisualCenter(FloatArray(2))
         Utilities.mapCoordInSelfToDescendant(recyclerView, this, coord)
         val cx = coord[0]
@@ -131,5 +179,10 @@ class SearchContainerView @JvmOverloads constructor(
             }
         }
         return nearest
+    }
+
+    private companion object {
+        /** Matches Folder#REORDER_DELAY (src/com/android/launcher3/folder/Folder.java:196). */
+        const val REORDER_PREVIEW_DELAY_MS = 250L
     }
 }

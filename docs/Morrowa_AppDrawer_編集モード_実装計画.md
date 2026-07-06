@@ -866,3 +866,70 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 D2（アプリ同士のドラッグによる並び替え）は、当初の受け入れ条件（§10.1「App Drawer 内でアプリアイコンをドラッグして別の位置に落とすと、並び順が変わり、再起動後も保持される」）を実機で満たしたことを確認した。ゴースト・並び替え不成立というブロッカーも解消済み。
 
 残りは D3（リアルタイム入れ替えプレビュー、edge auto-scroll、着地アニメーション。§10.4/§10.11.5 参照、いずれも UX の磨きでD2の受け入れ条件には含まれない）と、フォルダ作成（Phase E）・フォルダ出し入れ（Phase F）。
+
+### 10.15 D3(i) 実装記録（2026-07-06）: リアルタイム並び替えプレビュー
+
+§10.4「D3(i) live preview」を実装した。ドラッグ中、指を止めて少し待つと他のアイコンが避けて暫定順が視覚的に反映されるようにする（DB 書き込みは drop 確定時のみ）。
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/lawnchair/allapps/LawnchairAlphabeticalAppsList.kt` | `pendingOrder: MutableList<AppInfo>?`（drag 中のみ非 null）を追加。`getAppSortComparator()` を、`pendingOrder` があればそれ由来の rank を最優先で使うよう変更（`drawerAppOrder`/アルファベット順はそのフォールバック）。`beginPendingReorder()`（現在表示順からシード、既に開始済みなら no-op）、`previewReorder(moved, insertIndex)`（`pendingOrder` を更新して `onAppsUpdated()`）、`cancelPendingReorder()`（`pendingOrder` を破棄して `onAppsUpdated()`）を追加。`reorderApp()` は `pendingOrder ?: getOrderedApps()` を基準にすることで、確定的の move 計算とプレビュー計算を共通の `movedTo()` ヘルパーに統合 |
+| `lawnchair/src/app/lawnchair/allapps/views/SearchContainerView.kt` | `onDragEnter()`：`prevTargetIndex = -1` とプレビュー用 alarm キャンセル（`Folder.onDragEnter` の `mPrevTargetRank = -1` に対応）。`onDragOver()`：対象判定（`eligibleMainList()` に共通化）→ `beginPendingReorder()` → target 解決 → 前回と異なる index なら 250ms（`Folder.REORDER_DELAY` と同値）の `Alarm` を張り直し、発火時に `previewReorder()`。`onDragExit()`：`dragObject.dragComplete` が **false のときだけ** `cancelPendingReorder()` を呼ぶ |
+
+設計上の最重要ポイント（ユーザー主導のこのセッションで詰めた点）:
+
+- **`onDragExit` での revert と `onDrop` での commit の競合回避**: `DragController.drop()`（`dragndrop/DragController.java:526-568`）は、同一 target へ drop する場合でも `mDragObject.dragComplete = true`（line 538）を設定した**後**に、無条件で `dropTarget.onDragExit(mDragObject)`（line 553）を呼んでから `acceptDrop`/`onDrop` に進む。つまり「本当に別の場所へ移動した exit」と「これから drop するための exit」を区別する必要があり、`Folder.onDragExit()`（`folder/Folder.java:1267-1270`、`if (!d.dragComplete)` で `mOnExitAlarm` を張るかどうか分岐）が同じ手法を使っていることを確認した上で、本実装でも `!dragObject.dragComplete` の場合だけ `cancelPendingReorder()` を呼ぶようにした。これにより、遅延 revert のための alarm を別途持つ必要がなくなり実装がシンプルになった。
+- `onDragOver` 内で `eligibleMainList()`（App Drawer 由来 / `AppInfo` / 非検索 / 個人タブ / `drawerList=true` の判定）に失敗した場合は `cancelPendingReorder()` を呼んで安全側に倒す（タブ切り替えなど想定外の状態遷移でプレビューが残留しないようにする）。
+- `acceptDrop()`/`onDrop()` 側の対象判定ロジック（旧`resolveTargetApp`呼び出し部）と `onDragOver()` の対象判定を `eligibleMainList()` に共通化し、判定基準が2箇所に分岐しないようにした。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: 1回目のビルドで `Alarm.setAlarm(long)` に `Int` を渡すコンパイルエラー（`REORDER_PREVIEW_DELAY_MS` を `Int` で宣言していたため）が発生。`250L`（`Long`）に修正し再ビルドして `BUILD SUCCESSFUL in 3m 21s`。
+
+未実施: 実機確認（ドラッグ中に他アイコンが避けて暫定順が見えるか、バーへ寄り道して戻ってきても古いプレビューが残らないか、最終的な drop で正しく確定・永続化されるか、ゴーストが出ないか、検索/fast scroll/Work タブ/フォルダ/Home 由来 drag の回帰）。
+
+### 10.16 実機確認結果（2026-07-06）: D3(i) 完了・追加要望2点
+
+D3(i)（リアルタイム並び替えプレビュー）は実機確認で問題なく動作した（プレビュー表示、バーへの寄り道からの復帰、最終確定・永続化、ゴーストなし、既存機能の回帰なし、すべて確認済み）。
+
+その上でユーザーから、Home 画面の drag/drop 体験と比較して App Drawer 側に**まだ欠けている2点**の指摘があった。
+
+1. **ドラッグ中/drop 時のアニメーションがない**: 現状 `SearchContainerView.onDrop()` は `dragObject.deferDragViewCleanupPostAnimation = false` を設定するだけで、DragView を即座に消している（§10.12 のゴースト対策として導入）。Home 画面では drop 時に `DragLayer.animateViewIntoPosition(...)` でアイコンが着地位置へ滑らかに移動してから消える。
+2. **重ねてもフォルダにならない**: 現状はアイコン同士の重なり具合に関わらず常に「並び替え（挿入）」としてのみ処理される。Home 画面では、対象アイコンの中心に十分近づくとフォルダ作成のプレビュー（背景ハイライト）が出て、その状態で drop すると新規フォルダが作られる（重なりが浅い場合は通常の並び替えになる）。
+
+この2点について、Home 画面（`Workspace`/`CellLayout`/`DragLayer`）の実装を参照した再設計方針を以下にまとめる。まだコード変更はしていない。
+
+#### 10.16.1 着地アニメーション（D3(iii) の具体化）
+
+Home 画面の着地アニメーションは `DragLayer.animateViewIntoPosition(...)`（`dragndrop/DragLayer.java:239-244` 他複数オーバーロード）が担っている。
+
+- `Folder.onDrop()`（`folder/Folder.java:1610` 付近）や `Workspace` の一部経路が使う `animateViewIntoPosition(DragView, View child, int duration, View anchorView)`（`DragLayer.java:250`）は、`child.getLayoutParams()` を `CellLayoutLayoutParams` にキャストする（`DragLayer.java:254`）ため、**`CellLayout` 配下の View 専用**であり、`RecyclerView` の子 View（`AllAppsRecyclerView` 配下）にはそのまま使えない。
+- 一方、`animateViewIntoPosition(DragView dragView, int[] pos, float alpha, float scaleX, float scaleY, int animationEndStyle, Runnable onFinishRunnable, int duration)`（`DragLayer.java:239-244`）は、**DragLayer 相対の生ピクセル座標 `pos` へアニメーションする**汎用オーバーロードで、レイアウト種別に依存しない。App Drawer 側はこちらを使うのが妥当。
+- 実装方針:
+  - `SearchContainerView.onDrop()` で `mainList.reorderApp(...)` を呼んで並び順を確定させた**後**、確定した挿入位置に対応する RecyclerView の子 View を再取得する（DiffUtil の move アニメーション後、対象アプリの新しい adapter position → `findViewHolderForAdapterPosition` 等で View を特定）。
+  - 対象 View が見つかれば、その View の DragLayer 相対座標を算出し（`Utilities.getDescendantCoordRelativeToAncestor` 等、既存 utility を使う）、`animateViewIntoPosition(dragObject.dragView, pos, ...)` を呼ぶ。
+  - 対象 View がまだレイアウトされていない（DiffUtil アニメ中で position が安定しない）等で特定できない場合は、現状どおり `deferDragViewCleanupPostAnimation = false` で即消しにフォールバックする（`Folder.onDrop()` が `d.dragView.hasDrawn()` が false の場合に同様のフォールバックをしているのと同じ考え方、`folder/Folder.java:1610-1622`）。
+  - `deferDragViewCleanupPostAnimation` は、着地アニメーションを使うパスでは **true のままにする**（アニメーション終了時に DragView 側が自分で消える。`DragLayer.animateViewIntoPosition` の `onFinishRunnable` 経由、または既存の `deferDragViewCleanupPostAnimation=true` 運用に準拠）。即消しフォールバックのパスでは false にする。
+
+#### 10.16.2 重ねてフォルダ作成（Phase E の着手方針の具体化）
+
+Home 画面のフォルダ作成判定は `Workspace.manageFolderFeedback()`（`Workspace.java:2977-3037`）が担っている。
+
+- 判定の核は**距離ベースの二段階しきい値**: `CellLayout.getFolderCreationRadius(targetCell)`（`CellLayout.java:950-955`）が「アイコン全体が見える半径」と「並び替えが始まる半径」の中間値を返し、この半径より近ければフォルダ作成候補、遠ければ通常の並び替え候補として扱われる。
+  - `getFolderCreationRadius()` 自体は `(getReorderRadius(targetCell, 1, 1) + iconVisibleRadius) / 2`（`CellLayout.java:952-954`）で、アイコンサイズと reorder 半径の中間を取っている。
+  - `manageFolderFeedback()`（`Workspace.java:2977`）は、この半径内なら `willCreateUserFolder(info, mDragOverView, false)`（`Workspace.java:2170` 系）を見て `DRAG_MODE_CREATE_FOLDER` へ遷移し、`PreviewBackground`（`Workspace.java:2993-3004`）で対象アイコンの背景にフォルダ作成プレビューを表示する。半径外なら `DRAG_MODE_NONE`（通常の並び替え）に戻す（`Workspace.java:2978-2984`）。
+- App Drawer（RecyclerView）への移植方針:
+  - `SearchContainerView.resolveTargetApp()`（現状は「最も近いアイコン」を返すだけ）を拡張し、**visual center と対象アイコン View の中心との距離**を計算する。この距離をアイコンサイズ相当の半径しきい値と比較し、「フォルダ作成圏内」か「並び替え圏内」かを判定する。RecyclerView の grid セルサイズ（`AllAppsRecyclerView` の cell width/height）から Home 画面の `getFolderCreationRadius()` に相当する値を算出する（アイコンサイズは `mActivityContext.getDeviceProfile().getAllAppsProfile()` 系から取得可能、§3.4 調査時に確認済みの `getCellHeightPx()` 等を参照）。
+  - `onDragOver()` にフォルダ作成プレビューの視覚フィードバックを追加する。Home 画面の `PreviewBackground`（`Workspace.java` 内、`CellLayout` 前提のクラス）はそのまま使えないため、対象アイコンの `BubbleTextView` に対する簡易的な拡大/背景ハイライト（例: `setScaleX/Y` や背景 drawable の一時適用）を新設するか、`PreviewBackground` を RecyclerView 環境向けに一般化する必要がある（要調査、着手時に判断）。
+  - `acceptDrop()`/`onDrop()` の分岐: フォルダ作成圏内で drop された場合は、既存の並び替え（`reorderApp`）ではなく新規 App Drawer フォルダ作成（`FolderViewModel.createFolder()` 等、既存の Lawnchair App Drawer フォルダ基盤 §3.1 参照）を呼ぶ。§10.3 判断5「フォルダ item は Phase D では動かせない・drop 先にもならない」を、この Phase E 着手をもって見直す。
+  - 既存フォルダへの追加（フォルダアイコンへの重ね drop）は Phase F のまま据え置く。
+
+この2点は元計画の D3(iii)（フライバック含む着地演出）と Phase E（フォルダ作成）に相当するが、実装に入る前に「Home 画面の実装をどこまで踏襲するか」を Codex へ渡すタスクとして明確化しておく必要がある。次回セッションでは、まず 10.16.1（アニメーション、影響範囲が小さい）から着手し、その後 10.16.2（フォルダ作成、`PreviewBackground` の扱いなど未決定事項が残る）に進む想定。

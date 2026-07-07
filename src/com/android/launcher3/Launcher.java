@@ -185,6 +185,7 @@ import com.android.launcher3.dagger.LauncherComponentProvider;
 import com.android.launcher3.debug.TestEventEmitter;
 import com.android.launcher3.debug.TestEventEmitter.TestEvent;
 import com.android.launcher3.dot.DotInfo;
+import com.android.launcher3.dragndrop.DragController;
 import com.android.launcher3.dragndrop.DragLayer;
 import com.android.launcher3.dragndrop.DragView;
 import com.android.launcher3.dragndrop.LauncherDragController;
@@ -1361,6 +1362,13 @@ public class Launcher extends StatefulActivity<LauncherState>
         // the drop target bar buttons but above Workspace's default-drop-target fallback.
         if (mAppsView instanceof DropTarget appsDropTarget) {
             mDragController.addDropTarget(appsDropTarget);
+        }
+        // Morrowa: also registered as a DragListener so it can hide the dragged app's own icon
+        // for the duration of the drag, mirroring Workspace#startDrag's child.setVisibility
+        // (INVISIBLE) (src/com/android/launcher3/Workspace.java:1933-1934). See §10.19.2 R1 of
+        // docs/Morrowa_AppDrawer_編集モード_実装計画.md.
+        if (mAppsView instanceof DragController.DragListener appsDragListener) {
+            mDragController.addDragListener(appsDragListener);
         }
         mDropTargetBar.setup(mDragController);
         mAllAppsController.setupViews(mScrimView, mAppsView);

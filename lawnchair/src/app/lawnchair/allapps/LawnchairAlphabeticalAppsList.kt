@@ -62,6 +62,17 @@ class LawnchairAlphabeticalAppsList<T>(
     // cancelPendingReorder() if the drag ends without a drop here. Null when no drag is active.
     private var pendingOrder: MutableList<AppInfo>? = null
 
+    // Morrowa §10.19.2 R1: component key of the app currently being dragged out of this list, if
+    // any. Read by SearchContainerView's OnChildAttachStateChangeListener to hide that one icon
+    // view for the duration of the drag (mirroring Workspace#startDrag's
+    // child.setVisibility(INVISIBLE), src/com/android/launcher3/Workspace.java:1933-1934) so
+    // only the DragView is visible, and the reorder preview reads as "a gap moves, neighbors
+    // shift" instead of the real icon also sliding around underneath the DragView. This is a
+    // plain visibility toggle applied directly to attached views -- it deliberately does NOT go
+    // through onAppsUpdated()/DiffUtil, since the adapter's item order/identity hasn't changed.
+    // Set/cleared by SearchContainerView's DragListener callbacks.
+    var draggedComponentKey: String? = null
+
     init {
         context.launcher.deviceProfile.inv.addOnChangeListener(this)
         (context as? LifecycleOwner)?.lifecycle?.addObserver(this)

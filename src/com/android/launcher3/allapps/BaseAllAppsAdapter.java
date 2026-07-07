@@ -48,6 +48,8 @@ import com.android.launcher3.model.data.AppInfo;
 import com.android.launcher3.model.data.FolderInfo;
 import com.android.launcher3.views.ActivityContext;
 
+import java.util.Objects;
+
 /**
  * Adapter for all the apps.
  *
@@ -149,18 +151,46 @@ public abstract class BaseAllAppsAdapter<T extends Context & ActivityContext> ex
         }
 
         /**
-         * Returns true if the items represent the same object
+         * Returns true if the items represent the same object.
+         *
+         * Morrowa: for icons and drawer folders, this also requires matching identity
+         * (component+user, or folder title) rather than just viewType/class, so DiffUtil
+         * (detectMoves=false, see AlphabeticalAppsList#updateAdapterItems) can report reordering
+         * as real moves instead of rebinding every affected position to a different app. See
+         * docs/Morrowa_AppDrawer_編集モード_実装計画.md §10.21.
          */
         public boolean isSameAs(AdapterItem other) {
-            return (other.viewType == viewType) && (other.getClass() == getClass());
+            if (other.viewType != viewType || other.getClass() != getClass()) {
+                return false;
+            }
+            if (viewType == VIEW_TYPE_ICON) {
+                return itemInfo != null && other.itemInfo != null
+                        && Objects.equals(itemInfo.componentName, other.itemInfo.componentName)
+                        && Objects.equals(itemInfo.user, other.itemInfo.user);
+            }
+            if (viewType == VIEW_TYPE_FOLDER) {
+                return Objects.equals(folderInfo.title, other.folderInfo.title);
+            }
+            return true;
         }
 
         /**
          * This is called only if {@link #isSameAs} returns true to check if the contents are same
          * as well. Returning true will prevent redrawing of thee item.
+         *
+         * Morrowa: for icons, uses reference equality on itemInfo so a model update (app
+         * relaunch/label change producing a new AppInfo instance) still triggers a rebind, while
+         * a pure reorder (same AppInfo instance moved to a new position) does not. See
+         * docs/Morrowa_AppDrawer_編集モード_実装計画.md §10.21.
          */
         public boolean isContentSame(AdapterItem other) {
-            return itemInfo == null && other.itemInfo == null;
+            if (itemInfo == null && other.itemInfo == null) {
+                return true;
+            }
+            if (itemInfo == null || other.itemInfo == null) {
+                return false;
+            }
+            return itemInfo == other.itemInfo;
         }
 
         @Nullable

@@ -990,3 +990,265 @@ Home 画面のフォルダ作成判定は `Workspace.manageFolderFeedback()`（`
 **実装順**: 要望1（着地アニメーション）→ 要望2の 1〜2（判定+フィードバック、drop はまだ reorder のみ）→ 要望2の 3〜5（フォルダ作成接続）。要望2は DAO/Service/ViewModel の追加（純増・既存無改造）とドラッグ側の分岐が分離できるので、Codex タスクも「基盤」「接続」の2つに分ける。
 
 受け入れ条件（要望2全体）: アイコンを別アイコンの中心近くに重ねると target が拡大表示され、その状態で drop すると2アプリ入りの新規 App Drawer フォルダがフォルダ節に作られる。浅い重なり（半径外）では従来どおり並び替えになる。フォルダ作成後にゴーストが残らず、Room の `Folders`/`FolderItems` に反映され、再起動後も保持される。設定画面のフォルダ一覧にも新フォルダが見える。
+
+### 10.18 要望1（着地アニメーション）実装記録（2026-07-06）
+
+§10.17.1 の設計に沿って `SearchContainerView` に drop 着地アニメーションを実装した。
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/lawnchair/allapps/views/SearchContainerView.kt` | `onDrop()` を書き換え。`reorderApp()` 確定後、`OneShotPreDrawListener.add(recyclerView) { ... }`（`androidx.core.view`、次のレイアウトパス後に1回だけ発火）で新しいレイアウトが確定するのを待ってから `animateDropLanding()` を呼ぶ。新設した `animateDropLanding()` が、移動先アプリの新 adapter position → `findViewHolderForAdapterPosition()` で対象 `BubbleTextView` を取得し、`getWorkspaceVisualDragBounds()` + `DragLayer.getDescendantCoordRelativeToSelf()` で着地座標・スケールを算出し、対象 View を `INVISIBLE` にしてから `DragLayer.animateViewIntoPosition(dragView, toX, toY, ..., ANIMATION_END_DISAPPEAR, ...)` を呼ぶ（アニメーション終了で対象 View を `VISIBLE` に戻す）。対象 View が特定できない場合は `dragView.remove()` で即時除去にフォールバック |
+
+実装方針の補足:
+
+- **`onDrop()` の2択契約を維持**: 「`deferDragViewCleanupPostAnimation = false` にして即除去」か「デフォルトの true のまま着地アニメーションで自動除去させる」のどちらか一方に必ず到達するようコメントで明示した。§10.10/§10.12 のゴースト再発防止の不変条件をコード上に残す形にした。
+- **`ANIMATION_END_DISAPPEAR` を渡す経路の自動除去を確認済み**: `DragLayer.playDropAnimation()` がこのフラグ時に `clearAnimatedView()` を animation end listener として登録し、`clearAnimatedView()` が `DragController.onDeferredEndDrag(dragView)` を呼んで `dragView.remove()` と保留していた `callOnDragEnd()` を実行する（`dragndrop/DragLayer.java:388-420`, `dragndrop/DragController.java:363-373`）。既存の `Folder`/`Workspace` の着地アニメーションと同じ自動除去経路に乗せているため、新たな除去ロジックを自前で書く必要がなかった。
+- **座標計算は CellLayout 版から必要な部分だけ移植**: `DragLayer.animateViewIntoPosition(DragView, View child, int, View)`（`:250-306`）の `lp.x`/`translationProvider` によるセル位置の事前計算は、RecyclerView 側では不要（`OneShotPreDrawListener` で実レイアウト後の View を直接使うため）と判断し省略。`getWorkspaceVisualDragBounds()` によるスケール/オフセット計算部分（`:280-300`）のみを移植した。
+- **DragView の型**: `DropTarget.DragObject.dragView` フィールドは Java 側で raw 型 `DragView`（`DropTarget.java:58`）だが、`DragView` 自体は `DragView<T extends Context & ActivityContext>`（`dragndrop/DragView.java:77`）というジェネリクスクラスのため、Kotlin 側関数シグネチャでは `DragView<*>` と明示する必要があった（1回目のビルドでコンパイルエラー、`DragView<*>` に修正して解消）。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: 1回目のビルドで `DragView` の型引数エラー（`DragView<*>` 不足）が発生、修正して再ビルドし `BUILD SUCCESSFUL in 2m 20s`。
+
+未実施: 実機確認（着地アニメーションが滑らかに表示されるか、対象アイコンとの二重表示がないか、ゴーストが出ないか（通常drop・対象Viewが画面外・バーへのdrop・ドラッグキャンセルの各ケース）、並び替えの確定・永続化、検索/fast scroll/Work タブ/フォルダ/Home 由来 drag の回帰）。
+
+### 10.19 実機確認結果（2026-07-06）: 3症状の報告と、Home 編集画面モデルへの全面再設計
+
+実機報告（§10.18 実装後）:
+
+1. **二重表示**: ドラッグ中、指に追従する DragView と、並び替えプレビューで動く実アイコンの両方が見える。
+2. **フォルダが出ない**: 重ねてもフォルダにならない（§10.17.2 は設計のみで未実装のため想定どおりだが、要望としては未達）。
+3. **不安定**: 他のアイコンに重なっているときの挙動が不安定（プレビューが暴れる）。
+
+Home 編集画面（SPRING_LOADED）のアニメーション・並び替え・フォルダ作成のコードを精読し、現行 drawer 実装との構造差を特定した上で再設計する。
+
+#### 10.19.1 Home 編集画面の構造（精読結果）
+
+**(a) ドラッグ元アイコンは drag 開始時に非表示になり、動くのは常に「空きスロット」**
+
+- `Workspace.startDrag()`（`Workspace.java:1930-1954`）は drag 開始と同時に `child.setVisibility(INVISIBLE)`（`:1934`）。以後、画面上でアイコン本体は一切見えず、指に追従するのは DragView だけ。
+- 並び替えプレビュー（`CellLayout.MODE_SHOW_REORDER_HINT`）で動くのは**周囲のアイコン**であり、ドラッグ中アイテムの実 View ではない。ドラッグ中アイテムは「空きセル」として表現される（`Folder` では `mEmptyCellRank`、`Folder.java:243`）。
+- drop 失敗/キャンセル時は `cell.setVisibility(VISIBLE)` で復帰（`Workspace.java:2515` ほか）。drop 成功時は着地アニメーション完了時に VISIBLE へ戻す（`DragLayer.java:302-303`）。
+- **現行 drawer 実装との差**: All Apps 由来 drag には `startDrag():1934` に相当する非表示化が存在しない（従来は drawer が閉じるので不要だった）。さらに現行の `previewReorder()` は「ドラッグ中アプリ自身を pendingOrder 内で移動」させるため、**可視状態の実アイコンが DiffUtil move でホバー位置へ動いてしまう** — これが症状1の正体。
+
+**(b) 並び替えの励振防止は「セル単位のターゲット + 変化時のみ再アーム + 3層ゾーン + 650ms」の組み合わせ**
+
+- ターゲットは最近傍**セル**（`findNearestArea`、`Workspace.java:2796-2798`）。ドラッグ中アイテム自身の空きセルもターゲットになり得る（その場合は何も起きない）。
+- reorder alarm（`REORDER_TIMEOUT = 650`、`Workspace.java:271`。`Folder` の 250ms より長い）は **ターゲットセルが前回から変わったときだけ**再アームされる（`mLastReorderX/Y` 比較、`:2841`）。同じセル上に居続ける限り何も再発火しない。
+- 距離による3層ゾーン: セル中心からの距離が `getFolderCreationRadius()` 以内 → フォルダ判定、`getReorderRadius()` 以内 → reorder 判定（`:2842`）、それより外 → **何もしない dead zone**。
+  - `getReorderRadius()`（`CellLayout.java:960-981`）はフォルダ作成可能な 1x1 ターゲットに対しては「セル中心から（スペーシング込み）セル矩形の最近辺までの距離」（`:968-976`、コメント: "don't start reordering too soon before accepting a folder drop"）。
+  - `getFolderCreationRadius()` = `(reorderRadius + ICON_VISIBLE_AREA_FACTOR * iconSizePx / 2) / 2`（`CellLayout.java:950-955`）。
+- フォルダモード優先: `manageFolderFeedback()` が先に評価され（`Workspace.java:2807`）、`DRAG_MODE_CREATE_FOLDER` 中は reorder 分岐に入らない（`:2840` の mode 条件）。フォルダモードに入ると reorder の一時状態は revert される（`:2816-2821`）。
+- **現行 drawer 実装との差**: ターゲットが「ドラッグ中アプリを除く最近傍の他アプリ」なので、プレビュー適用後に自分のスロット上をホバーしていると隣のアプリが次のターゲットに解決され、target 変化 → alarm → プレビュー → また target 変化…と**発振する**。ゾーンも1層（全域 reorder）で、alarm も 250ms — これが症状3の正体。
+
+**(c) フォルダ判定には「アニメーション中の View を除外する」ガードがある**
+
+- `willCreateUserFolder()`（`Workspace.java:2170-2193`）の除外条件: ①ターゲット View が reorder アニメーションの一時座標にいる間は判定しない（`lp.useTmpCoords` チェック、`:2172-2176`）②ターゲットがドラッグ元自身（`hasntMoved`、`:2179-2182`）③drop 時は「ホバー中にフォルダモードへ入っていたか」を要求（`considerTimeout && !mCreateUserFolderOnDrop`、`:2184`。drop 座標での再計算をしない）。
+- ホバー演出は `PreviewBackground.animateToAccept()`（`Workspace.java:2993-3004`）、drop 確定は `createUserFolderIfNecessary()`（`:2221-`）→ `FolderIcon.performCreateAnimation()`（DragView を吸い込む）。
+
+#### 10.19.2 再設計: 空きスロットモデルへの移行
+
+**R1: ドラッグ元アイコンの非表示化（症状1の修正・最優先）**
+
+- `LawnchairAlphabeticalAppsList` に `draggedComponentKey: String?` を追加。drag 開始（`SearchContainerView` を `DragController.addDragListener` に登録して `onDragStart` で検知。App Drawer 由来 drag のみ）でセットし、`onDragEnd` で必ずクリア。
+- 非表示化の適用は **RecyclerView の `OnChildAttachStateChangeListener` 方式**（AOSP の adapter 無改造で完結）:
+  - attach 時: その child の adapter item が dragged key と一致 → `INVISIBLE`、それ以外 → `VISIBLE`（recycle された INVISIBLE View の復帰漏れを防ぐため必ず両方向を設定）。
+  - drag 開始時にも既に attach 済みの可視 children を1回走査して適用。
+- `previewReorder()` は現行どおり「ドラッグ中アプリを pendingOrder 内で移動」でよい。**動く View が INVISIBLE になるため、見た目は「空きスロットが移動し、隣接アイコンが DiffUtil move で避ける」= Home と同じ表現になる。**
+- 復帰経路（Home の `Workspace.java:2515` 相当）:
+  - reorder drop 成功 → 既存の着地アニメーション（§10.18）のターゲットがドラッグ中アプリ自身の（INVISIBLE な）View になるだけで、完了時 VISIBLE 復帰は実装済みコードがそのまま機能する。
+  - キャンセル / バー（Uninstall・Add to home screen）への drop / Workspace など他 target への drop → `onDragEnd` で dragged key をクリアし、可視 children を走査して VISIBLE 復帰。Uninstall 成功時はリスト更新で item 自体が消えるので復帰は無害な no-op。
+
+**R2: スロットベースのターゲット解決 + 3層ゾーン + 650ms（症状3の修正）**
+
+- `resolveTargetApp()`（アプリ単位・自分除外）を廃止し、`resolveTargetSlot()` に置き換える: 最近傍の**アイコンスロット**（`VIEW_TYPE_ICON` の child。**ドラッグ中アプリ自身のスロットを含む**）を返す。自分のスロットが最近傍なら「ターゲット変化なし」として扱い、何もしない（Home でドラッグ元の空きセルにホバーしている状態に相当）。
+- `lastTargetSlotIndex` を保持し、**スロットが変わったときだけ** reorder alarm を再アーム（`Workspace.java:2841` の `mLastReorderX/Y` 比較に相当）。alarm は **650ms**（`REORDER_TIMEOUT`、`Workspace.java:271` と同値）へ変更。
+- 距離3層ゾーン（target スロットの視覚中心からの距離 `dist`）:
+  - `dist ≤ folderRadius` かつ target が他アプリ → **FOLDER 候補**（R4 実装まではゾーンとして予約し、何もしない = reorder が発火しない dead zone として先に入れる。これだけでも「深く重ねたときの不安定」が消える）。
+  - `folderRadius < dist ≤ reorderRadius` → **REORDER**（上記 alarm 条件で preview）。
+  - `dist > reorderRadius` → 何もしない。
+  - 半径の算出（`CellLayout.java:950-981` の RV 読み替え）: `cellW/cellH` は target child の実測 width/height、`iconVisibleRadius = ICON_VISIBLE_AREA_FACTOR * dp.allAppsIconSizePx / 2`、`reorderRadius = min(cellW, cellH) / 2`（セル中心から最近辺まで）、`folderRadius = (reorderRadius + iconVisibleRadius) / 2`。
+- アニメーション中ガード（`Workspace.java:2172-2176` の `useTmpCoords` 相当）: target child が DiffUtil の move アニメーション中（`recyclerView.itemAnimator?.isRunning == true` の間、または `child.translationX/Y != 0`）は**フォルダ判定もターゲット更新もスキップ**する。プレビュー直後の座標が不安定な瞬間に判定しない。
+
+**R3: フォルダ作成基盤（§10.17.2 のまま・純増のみ）**
+
+- `FolderDao.insertFolderReturningId(): Long` + `FolderService.createFolderWithItems(title, apps): Int` + `FolderViewModel.createFolderWithApps(title, apps)`（完了後 `reloadHelper.reloadGrid()`）。既定タイトル `R.string.my_folder_label`。変更なしの詳細は §10.17.2 参照。
+
+**R4: FOLDER モードの接続（症状2の解消）**
+
+- R2 の FOLDER 候補ゾーンに入ったら（かつ target child がアニメーション中でない・target が自分でない）: `dragMode = CREATE_FOLDER`、reorder alarm cancel、target `BubbleTextView` を scale アップ（1.0→1.15、150ms。`PreviewBackground.animateToAccept()` の代替）。ゾーンから出るか target が変わったら scale を戻して `NONE` へ。
+- drop: **ホバーで FOLDER モードに入っていた場合のみ**フォルダ作成（`mCreateUserFolderOnDrop` 相当のフラグを acceptDrop/onDrop へ引き継ぐ。drop 座標での再判定はしない、`Workspace.java:2184` と同じ思想）。`createFolderWithApps(my_folder_label, [target, dragged])` → DragView は target アイコン位置への着地アニメーション再利用（取れなければ即 remove）→ `reloadGrid()` で反映。scale は必ず復元。
+- REORDER モードで drop した場合は従来の `reorderApp()` 経路。
+
+**実装順とタスク分割**: R1 → R2 →（ビルド+実機で症状1/3の解消を確認してから）→ R3 → R4 → 総合検証。R1/R2 は `SearchContainerView` + `LawnchairAlphabeticalAppsList` に閉じ、R3 は data 層の純増、R4 が両者を接続する。各ステップの受け入れ条件:
+
+- R1: ドラッグ中、実アイコンが見えるのは DragView の1つだけ。プレビューは「空きが移動して他アイコンが避ける」見た目になる。キャンセル・バー drop 後にアイコンが欠けたまま/二重のまま残らない。
+- R2: 同じアイコンの上に指を置き続けてもプレビューが発振しない。浅い重なり（reorder ゾーン）でのみ並び替えが起き、深い重なり（folder ゾーン）と遠い位置では何も起きない。
+- R4: 深い重なりで target が拡大表示され、その状態の drop で2アプリ入りフォルダがフォルダ節に作られる（§10.17.2 の受け入れ条件を継承）。拡大表示が残留しない。
+
+### 10.20 R1+R2 実装記録（2026-07-07）
+
+§10.19.2 の R1（ドラッグ元アイコンの非表示化）と R2（スロットベースのターゲット解決 + 3層ゾーン + 650ms）を実装した。R3（フォルダ作成基盤）・R4（フォルダモードの接続）は未着手（設計順序どおり）。
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `src/com/android/launcher3/Launcher.java` | `setupViews()` で、`mAppsView` が `DragController.DragListener` を実装している場合に `mDragController.addDragListener(...)` を追加登録（`DragController` の import 追加） |
+| `lawnchair/src/app/lawnchair/allapps/LawnchairAlphabeticalAppsList.kt` | `draggedComponentKey: String?` プロパティを追加（R1）。純粋な View 可視性トグル用の状態であり、意図的に `onAppsUpdated()`/DiffUtil を経由しない（adapter の並び順自体は変わらないため） |
+| `lawnchair/src/app/lawnchair/allapps/views/SearchContainerView.kt` | `DragController.DragListener` を追加実装。`onDragStart`/`onDragEnd` で `draggedComponentKey` の設定/クリアと、`RecyclerView.OnChildAttachStateChangeListener` によるドラッグ元アイコンの `INVISIBLE`/`VISIBLE` 切り替えを行う（R1）。`resolveTargetApp`（自分除外・距離無制限）を `resolveTargetSlot`（自分含む最近傍スロット）+ `classifyZone`（FOLDER/REORDER/NONE の3層判定）+ `isSlotAnimating`（アニメーション中ガード）に置き換え、`acceptDrop`/`onDragOver` の両方でこれらを使うよう統一（R2）。`prevTargetIndex`（アプリ単位の index 比較）を `lastTargetSlotKey`（スロット単位の component key 比較）に置き換え、`REORDER_PREVIEW_DELAY_MS` を 250ms → 650ms に変更 |
+
+実装方針の補足:
+
+- **R1 の適用範囲**: `draggedComponentKey` はメインタブ（`getPersonalAppList()`）のみに適用し、Work タブからの drag には非表示化を適用していない。理由: `LawnchairAlphabeticalAppsList` インスタンス自体はメイン/ワーク/検索の3つ存在するが、並び替え機能自体がメインタブ限定（§10.3 決定3）であり、「どのタブの RecyclerView が対象か」を安全に特定する公開 API（`ActivityAllAppsContainerView.mAH`/`AdapterHolder.mRecyclerView` はいずれもパッケージプライベートで別パッケージの `SearchContainerView` から参照不可）が存在しないため。ドラッグ開始時点の `activeRecyclerView`/`isPersonalTab` を使い、メインタブ表示中の drag だけを対象にした。
+- **R2 のゾーン境界とヒステリシス**: `classifyZone()` は Home の `CellLayout.getFolderCreationRadius()`/`getReorderRadius()` の式をそのまま踏襲し、`min(cellW, cellH) / 2` を reorder 半径、`(reorderRadius + iconVisibleRadius) / 2` を folder 半径とした。Home 同様ヒステリシスは設けていない（同一半径で in/out）。
+- **アニメーション中ガード**: `Workspace.willCreateUserFolder()` の `useTmpCoords` チェック（`Workspace.java:2172-2176`）に相当する判定として、`isSlotAnimating()` で `child.translationX/Y != 0` または `recyclerView.itemAnimator?.isRunning == true` を見ている。後者は RecyclerView 全体のアニメーション実行状態（個々の child 単位ではない）だが、DiffUtil の move アニメーションはリスト全体でまとまって発生するため実用上十分と判断した。
+- **FOLDER ゾーンの現状**: R4 未実装のため、`onDragOver`/`acceptDrop` とも FOLDER ゾーンでは何もしない（reorder プレビューを発火させない）dead zone として扱う。深く重ねた状態で drop しても `acceptDrop()` が false を返し、drop 自体が不成立になる（§9.7 の修正により、Drawer 由来 drag はこの場合も強制的に Home へは戻らず、Drawer 内に留まる）。
+- **コンパイルエラーの修正**: 初回ビルドで `mainList.getOrderedApps().indexOfFirst { it.toComponentKey() == slotKey }` が `ComponentKey` と `String` の比較になりコンパイルエラー（`slotKey` は `String`）。`it.toComponentKey().toString() == slotKey` に修正して解消。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: 1回目のビルドで型不一致によるコンパイルエラー、修正して再ビルドし `BUILD SUCCESSFUL in 9m 42s`。
+
+未実施: 実機確認（症状1: ドラッグ元アイコンが非表示になり DragView との二重表示が解消されているか、症状3: 同じアイコンに指を置き続けてもプレビューが発振しないか、深い重なり（folder ゾーン）が静かな dead zone になっているか、症状2: フォルダ自体はまだ作られない（R4 未実装のため想定通り）、検索/fast scroll/Work タブ/フォルダ/バー/Home 由来 drag/通常の並び替えと永続化の回帰確認）。
+
+### 10.21 実機確認結果（2026-07-07）: 症状3のみ解消・症状1の真の根本原因を特定
+
+実機報告: R1+R2 導入後、**症状3（不安定）は解消**したが、**症状1（二重表示）は解消していない**。症状2（フォルダ）も出ない。
+
+#### 症状2について（バグではない）
+
+R3/R4 は設計順序どおり**未実装**（§10.20 冒頭に記載。R1/R2 の実機確認を先に通す計画だった）。現状の FOLDER ゾーンは「何も起きない dead zone」として動いており、これは §10.20 の想定どおりの挙動。フォルダが作られるようになるのは R3+R4 実装後。
+
+#### 症状1の真の根本原因: `AdapterItem` の DiffUtil 識別が「アプリの同一性」を見ていない
+
+R1 の「ドラッグ元 View を INVISIBLE にする」実装自体は正しく動いているが、前提が崩れていた。
+
+- `AdapterItem.isSameAs()`（`allapps/BaseAllAppsAdapter.java:154-156`）は **`viewType` と class しか比較しない**。つまり DiffUtil（`AlphabeticalAppsList.updateAdapterItems()` の `MyDiffCallback`）から見ると、**アイコン item はどの位置のどのアプリでも「同一 item」**である。
+- `isContentSame()`（`:162-164`）は `itemInfo == null && other.itemInfo == null` なので、アイコン item（itemInfo 非 null）は**常に「内容が違う」**。
+- さらに `DiffUtil.calculateDiff(new MyDiffCallback(...), false)`（`AlphabeticalAppsList.java:362-364`）は第2引数 `detectMoves = false`。
+- 帰結: `previewReorder()` でリスト順を変えたとき、DiffUtil は **MOVE を一切発行せず、影響範囲の全 position に CHANGE（rebind）を発行**する。つまり「View が動く」のではなく「**各 View に表示されるアプリが再割り当てされる**」:
+  - drag 開始時に INVISIBLE にした View（当時ドラッグ中アプリを表示していた）は、プレビュー後は**隣のアプリを表示する INVISIBLE な View** になる（無関係なアプリが1つ消える）。
+  - ドラッグ中アプリの情報は、プレビュー先の position にある**別の VISIBLE な View に rebind** される → **二重表示はここから来ている**。
+  - `OnChildAttachStateChangeListener` は rebind では発火しない（attach/detach が起きない）ため、R1 の仕掛け全体が素通りされる。
+- これは「Home のコードを参考にしたのに直らない」ことの説明でもある: Home の `CellLayout` は **View とアイテムの対応が固定**（`startDrag():1934` で View を隠せばそのアイテムはずっと隠れている）なのに対し、RecyclerView は**識別ベースの diff がなければ rebind で対応関係が動く**。R1 は「View を隠す」という Home の手段だけを移植し、その前提（View⇔アイテムの固定対応）が RV 側に存在しなかった。
+
+なお症状3が解消したのは、R2 の修正（スロット化・3層ゾーン・650ms・アニメ中ガード）が geometry 側の問題であり、この識別問題と独立だったため。
+
+#### 修正方針: `AdapterItem` に識別ベースの diff を入れる（LauncherState 追加は不要）
+
+「App Drawer 専用の編集 state を追加するか」という論点への回答: **不要**。この問題は `LauncherState` と無関係の RecyclerView adapter の識別問題であり、state を追加しても1行も変わらない。方針B（ALL_APPS のまま drag）は引き続き妥当。
+
+修正内容（次セッションで実装）:
+
+1. `AdapterItem.isSameAs()` を識別ベースへ変更（`BaseAllAppsAdapter.java:154-156`、AOSP への最小差分）:
+   - `viewType`/class 一致に加え、`VIEW_TYPE_ICON` は `itemInfo.componentName` + `itemInfo.user` の一致を要求する（null は不一致扱い）。
+   - `VIEW_TYPE_FOLDER` は `folderInfo.title` の一致を要求（LC の drawer フォルダは rebuild ごとに `FolderInfo` を新規生成し id 未設定のため、title が実用的な識別子）。
+   - その他の viewType は従来どおり（viewType 一致のみ）。
+2. `isContentSame()` はアイコンについて `itemInfo == other.itemInfo`（参照一致）へ変更。モデル更新（アプリ更新・ラベル変更）では `AppInfo` が別インスタンスになるので rebind が走り、単なる並び替えでは rebind されない。
+3. 期待される効果:
+   - 並び替え（preview/確定とも）が **本物の位置移動**として配信され、`detectMoves=false` でも「ドラッグ中アプリの remove+insert + 他アプリの自動スライド」になる（DiffUtil は identity が安定していれば他 item を動かさない）。**Home と同じ「隙間が動き、隣が滑って避ける」アニメーションが RecyclerView 標準の ItemAnimator で実現される。**
+   - R1 の INVISIBLE 化が成立する: INVISIBLE な View はドラッグ中アプリを表示し続け、rebind で別アプリに割り当てられない。挿入で新しく attach される View は既存の `OnChildAttachStateChangeListener` が捕捉して INVISIBLE を適用する。
+4. リスク / 回帰確認ポイント: `AdapterItem` の diff 挙動は App Drawer の**全更新経路**（アプリのインストール/アンインストール、ラベル・アイコン変更、検索結果リスト、Work/Private タブ、フォルダ表示、fast scroll の行計算）に影響する。識別ベース diff は RecyclerView の標準作法であり全面的に安全側の変更だが、上記の各経路を回帰確認に含める。特に検索結果（`SearchAdapterItem`、class 比較で従来どおり分離される）と private space ヘッダー周りを確認する。
+
+実装順: この修正(1)(2) → 実機で症状1の解消を確認 → R3（フォルダ基盤）→ R4（フォルダ接続、§10.19.2 のまま）。
+
+### 10.22 `isSameAs`/`isContentSame` 修正 実装記録（2026-07-07）
+
+§10.21 の診断に沿って `AdapterItem`（AOSP 由来）を最小差分で修正した。
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `src/com/android/launcher3/allapps/BaseAllAppsAdapter.java` | `AdapterItem.isSameAs()`: `VIEW_TYPE_ICON` は `itemInfo.componentName` + `itemInfo.user` の一致（`Objects.equals`、null は不一致）を追加要求。`VIEW_TYPE_FOLDER` は `folderInfo.title` の一致を追加要求。それ以外の viewType は従来どおり viewType/class 一致のみ。`isContentSame()`: 両方 `itemInfo == null` なら true（従来どおり、フォルダ等はここで完結）、片方だけ null なら false、両方非 null（アイコン）なら参照一致 `itemInfo == other.itemInfo` に変更。`java.util.Objects` の import を追加 |
+
+実装方針の補足:
+
+- **AOSP への差分は診断どおり最小**: `isSameAs()`/`isContentSame()` の2メソッドのみ変更、シグネチャ・呼び出し側（`AlphabeticalAppsList.MyDiffCallback`）は無改造。
+- **`SearchAdapterItem` への影響なし**: `lawnchair/src/app/lawnchair/search/adapter/SearchAdapterItem.kt` が独自に `isSameAs`/`isContentSame` を override しており、`getClass() != getClass()` チェック（今回変更していない）で他の `AdapterItem` とは元々分離されている。
+- **フォルダの `isContentSame` は現状維持**: フォルダ item は `itemInfo` が常に null（`AdapterItem.asFolder()` は `itemInfo` を設定しない）ため、修正後も「両方 null → true」の分岐に入り、内容比較は従来と同じ粗さのまま（title 一致していれば常に「内容同じ」）。今回のスコープは識別（`isSameAs`）のみで、フォルダの内容変化検知の精緻化は対象外（既存の粗さを継承するだけで新規の劣化ではない）。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: `BUILD SUCCESSFUL in 2m 34s`。新規/変更ファイル起因のエラーなし。
+
+未実施: 実機確認（症状1: 並び替えドラッグ中に二重表示が解消しているか、ドラッグ元 View が別アプリに rebind されず INVISIBLE のまま保たれるか、並び替えの確定・永続化、検索/fast scroll/Work タブ/フォルダ表示/アプリのインストール・アンインストール時のリスト更新/private space ヘッダーの回帰確認）。
+
+### 10.23 実機確認結果（2026-07-07）: 症状1解消を確認
+
+ユーザー確認: **§10.19〜§10.21 で追跡していた症状1（並び替えドラッグ中の二重表示）は `AdapterItem.isSameAs()`/`isContentSame()` の識別ベース diff 修正（§10.22）により解消**。
+
+これで §10.16 で報告された3症状すべてに決着がついた。
+
+| 症状 | 状態 |
+|---|---|
+| 1. 二重表示 | **解消**（§10.22 の識別ベース diff 修正） |
+| 2. フォルダが出ない | 未解決だが仕様どおり（R3/R4 未実装、意図的な dead zone） |
+| 3. 不安定（発振） | **解消**（§10.20 R2 の3層ゾーン + 650ms + アニメ中ガード） |
+
+残る回帰確認項目（検索/fast scroll/Work タブ/フォルダ表示/インストール・アンインストール時のリスト更新/private space ヘッダー）は次回以降に持ち越し。次のステップは R3（フォルダ作成基盤）→ R4（フォルダモードの接続）。
+
+### 10.24 並び替え閾値の修正（2026-07-07）: reorder 半径が Home の式と一致していなかった
+
+ユーザーから「アプリ入れ替えの閾値を下げたい、Home のコードと同じにしてほしい」との指摘。`classifyZone()` の `reorderRadius` 計算を確認したところ、Home の実式と異なっていた。
+
+原因: `CellLayout.getReorderRadius()`（`CellLayout.java:960-981`）は、対象セルが `canCreateFolder` かつ 1x1 の場合（App Drawer のアイコンは常にこれに該当）、中心からの最短距離を **`cellBoundsWithSpacing`**（セル本来の矩形を `mBorderSpace` の半分だけ外側へ拡張した矩形、`CellLayout.java:517` の `inset(-mBorderSpace.x / 2, -mBorderSpace.y / 2)`）の最近辺までで計算する。つまり **隣接セルとの隙間（gutter）の半分まで reorder 半径が食い込む**。
+
+これに対し、これまでの実装は `min(cellW, cellH) / 2`（対象 View 自身の幅/高さの半分のみ、gutter 分を含まない）だったため、Home の実際の reorder 半径より**狭く**なっていた（＝並び替えを発火させるには Home よりも正確に中心へ寄せる必要があった＝ユーザーの言う「閾値が高い」状態）。
+
+対応: `lawnchair/src/app/lawnchair/allapps/views/SearchContainerView.kt` の `classifyZone()` を修正。`mActivityContext.getDeviceProfile().getAllAppsProfile().getBorderSpacePx()`（`Point`、Kotlin から `borderSpacePx.x`/`.y` でアクセス）を取得し、`reorderRadius = min(cellW / 2 + borderSpace.x / 2, cellH / 2 + borderSpace.y / 2)` に変更。`folderRadius` の式（`(reorderRadius + iconVisibleRadius) / 2`）は変更なし（`reorderRadius` が広がった分、連動して広がる）。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: `BUILD SUCCESSFUL in 44s`。新規/変更ファイル起因のエラーなし。
+
+未実施: 実機確認（並び替えが Home 相当の緩さで発火するか、フォルダゾーンの dead zone が引き続き自然か、症状1/3の再発がないか）。
+
+### 10.25 感度修正2件目（2026-07-07）: 距離計算の基準点がアイコン画像の中心とズレていた
+
+§10.24 の reorder 半径修正後もユーザーから「感度がやや悪い」との報告があり、追加調査した。
+
+原因: `resolveTargetSlot()` の距離計算が `child.left + child.width / 2f` / `child.top + child.height / 2f`（**RecyclerView の子 View 全体の幾何中心**）を基準点にしていた。しかし App Drawer のアイコンセルは `BubbleTextView` の縦レイアウト（アイコン画像が上部、ラベルがその下）で構成されており、`BubbleTextView.getIconBounds()`（`BubbleTextView.java:953-964`）を見ると、縦レイアウト時は `outBounds.offset((getWidth() - iconSize) / 2, getPaddingTop())` — **アイコン画像自体は View 全体の上寄りに位置し、View 全体の幾何中心とは一致しない**（ラベル分だけ View の実際の中心が下にずれる）。
+
+ユーザーは自然にアイコン画像そのものへ指を近づけるが、距離判定は「アイコン+ラベルを含むセル全体」の中心を基準にしていたため、実際に意図した位置とシステムが測る位置にズレが生じ、結果として「Home より感度が悪い」ように感じられていた。
+
+対応: `lawnchair/src/app/lawnchair/allapps/views/SearchContainerView.kt` に `iconVisualCenter(child: View)` を追加。`child` が `DraggableView`（`BubbleTextView` が実装、着地アニメーション §10.18 で既に使っている `getWorkspaceVisualDragBounds()` と同じ API）なら、そのアイコン画像の視覚的矩形の中心を返す（`Rect.exactCenterX()`/`exactCenterY()`、`child` の RV 内座標へオフセット）。`DraggableView` でない場合や矩形が空の場合は従来どおり View 全体の幾何中心にフォールバックする。`resolveTargetSlot()` はこの `iconVisualCenter()` を基準に距離を計算するよう変更。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: `BUILD SUCCESSFUL in 1m 10s`。新規/変更ファイル起因のエラーなし。
+
+未実施: 実機確認（並び替えの感度が Home と同等に感じられるか、既存修正（二重表示解消・発振解消・フォルダゾーンの dead zone）の再発がないか）。

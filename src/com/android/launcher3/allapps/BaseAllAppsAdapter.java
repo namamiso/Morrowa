@@ -171,6 +171,14 @@ public abstract class BaseAllAppsAdapter<T extends Context & ActivityContext> ex
                         && Objects.equals(itemInfo.user, other.itemInfo.user);
             }
             if (viewType == VIEW_TYPE_FOLDER) {
+                // Morrowa §10.38.1 G-1 (fact g fix): prefer canonical folder id -- when both sides
+                // carry a real DB id (> 0; default is NO_ID = -1, synthetic/optimistic folders too),
+                // compare by id so several folders sharing a title are distinct. Fall back to title
+                // otherwise, which is how an optimistic folder (id still NO_ID) matches its canonical
+                // self until the DB round-trips (§10.35 note: the "four same-named folders" case).
+                if (folderInfo.id > 0 && other.folderInfo.id > 0) {
+                    return folderInfo.id == other.folderInfo.id;
+                }
                 return Objects.equals(folderInfo.title, other.folderInfo.title);
             }
             return true;

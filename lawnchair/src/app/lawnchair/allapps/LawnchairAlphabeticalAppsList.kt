@@ -7,7 +7,7 @@ import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
 import app.lawnchair.data.AppDatabase
-import app.lawnchair.data.appdrawer.DrawerAppOrderEntity
+import app.lawnchair.data.appdrawer.DrawerOrderEntity
 import app.lawnchair.data.folder.model.FolderOrderUtils
 import app.lawnchair.data.folder.model.FolderViewModel
 import app.lawnchair.launcher
@@ -51,15 +51,27 @@ class LawnchairAlphabeticalAppsList<T>(
         (context as? ComponentActivity)?.application ?: context.launcher.application,
     )
     private var folderList = mutableListOf<FolderInfo>()
-    private val filteredList = mutableListOf<AppInfo>()
 
-    // Morrowa: persisted manual order for the main app list only (see §10.3 of
-    // docs/Morrowa_AppDrawer_編集モード_実装計画.md). Empty until the user first reorders.
+    // Morrowa: legacy app-only manual order (table `DrawerAppOrder`). Kept observed in G1 solely as
+    // a comparator fallback so a user who reordered pre-upgrade keeps their app order on the very
+    // first render, before the runtime seed (§10.38.1 G-1) populates the unified `DrawerOrder`. No
+    // longer written (§10.38.5 risk 1).
     private var drawerAppOrder: Map<String, Int> = emptyMap()
+
+    // Morrowa §10.38.1 G-1: the unified App Drawer order (table `DrawerOrder`), keyed by namespaced
+    // key ("app:<componentKey>" / "folder:<id>") -> rank. Single source of truth for both folder
+    // and app placement in the main list. Empty until seeded/first user action.
+    private var drawerOrder: Map<String, Int> = emptyMap()
+
+    // Morrowa §10.38.1 G-1: guards the one-shot runtime seed so it runs at most once per session
+    // (and never once DrawerOrder already holds rows).
+    private var drawerOrderSeeded: Boolean = false
 
     // Morrowa D3(i): in-memory-only order shown live while a reorder drag is in progress (see
     // SearchContainerView#onDragOver). Not persisted until commitPendingReorder(); reverted by
     // cancelPendingReorder() if the drag ends without a drop here. Null when no drag is active.
+    // §10.38.1 G-1: only App entries move in task G, but this is a list of entries so folder drag
+    // (task H) is a pure extension.
     private var pendingOrder: MutableList<AppInfo>? = null
 
     // Morrowa §10.19.2 R1: component key of the app currently being dragged out of this list, if
@@ -86,8 +98,22 @@ class LawnchairAlphabeticalAppsList<T>(
         }
         observeFolders()
         if (isMainList) {
+            observeDrawerOrder()
             observeDrawerAppOrder()
         }
+    }
+
+    // Morrowa §10.38.1 G-1: observe the unified DrawerOrder (folders + apps). Replaces the app-only
+    // observeDrawerAppOrder as the display driver; observeDrawerAppOrder is kept only as a
+    // first-render comparator fallback (see [drawerAppOrder]).
+    private fun observeDrawerOrder() {
+        AppDatabase.INSTANCE.get(context).drawerOrderDao().getAll()
+            .onEachFlow { entities ->
+                drawerOrder = entities.associate { it.key to it.rank }
+                if (drawerOrder.isNotEmpty()) drawerOrderSeeded = true
+                onAppsUpdated()
+            }
+            .launchIn(context.launcher.lifecycleScope)
     }
 
     private fun observeDrawerAppOrder() {
@@ -103,38 +129,47 @@ class LawnchairAlphabeticalAppsList<T>(
         val alphabetical = super.getAppSortComparator()
         if (!isMainList) return alphabetical
 
+        // §10.38.1 G-2: keep mApps' app-to-app order equal to the unified list's app-to-app order so
+        // DiffUtil and fast scroll stay consistent. Live preview wins; then the persisted app ranks
+        // (from DrawerOrder "app:" keys, with the legacy DrawerAppOrder as a pre-seed fallback).
         pendingOrder?.let { pending ->
             val rank = pending.withIndex().associate { (index, app) ->
                 app.toComponentKey().toString() to index
             }
-            return Comparator { a, b ->
-                val rankA = rank[a.toComponentKey().toString()]
-                val rankB = rank[b.toComponentKey().toString()]
-                when {
-                    rankA != null && rankB != null -> rankA.compareTo(rankB)
-                    rankA != null -> -1
-                    rankB != null -> 1
-                    else -> alphabetical.compare(a, b)
-                }
-            }
+            return rankComparator(rank, alphabetical)
         }
 
-        // Manual order only applies in manual drawer-folder mode, once the user has reordered
-        // at least once (§10.3 decisions 3-4).
-        if (drawerAppOrder.isEmpty() || !prefs.drawerList.get()) {
-            return alphabetical
-        }
-        return Comparator { a, b ->
-            val rankA = drawerAppOrder[a.toComponentKey().toString()]
-            val rankB = drawerAppOrder[b.toComponentKey().toString()]
+        // Manual order only applies in manual drawer-folder mode (§10.3 decisions 3-4).
+        if (!prefs.drawerList.get()) return alphabetical
+        val appRanks = currentAppRanks()
+        if (appRanks.isEmpty()) return alphabetical
+        return rankComparator(appRanks, alphabetical)
+    }
+
+    /**
+     * Morrowa §10.38.1 G-2: the persisted app ordering, componentKey -> rank. Prefers the unified
+     * DrawerOrder ("app:" entries); falls back to the legacy DrawerAppOrder only until the runtime
+     * seed populates DrawerOrder, so a pre-upgrade manual order survives the very first render.
+     */
+    private fun currentAppRanks(): Map<String, Int> {
+        val fromUnified = drawerOrder.asSequence()
+            .filter { it.key.startsWith(APP_PREFIX) }
+            .associate { it.key.removePrefix(APP_PREFIX) to it.value }
+        return if (fromUnified.isNotEmpty()) fromUnified else drawerAppOrder
+    }
+
+    /** Ranked-first, then [fallback] (alphabetical), keyed by componentKey. */
+    private fun rankComparator(rank: Map<String, Int>, fallback: Comparator<AppInfo>): Comparator<AppInfo> =
+        Comparator { a, b ->
+            val rankA = rank[a.toComponentKey().toString()]
+            val rankB = rank[b.toComponentKey().toString()]
             when {
                 rankA != null && rankB != null -> rankA.compareTo(rankB)
                 rankA != null -> -1
                 rankB != null -> 1
-                else -> alphabetical.compare(a, b)
+                else -> fallback.compare(a, b)
             }
         }
-    }
 
     override fun onDestroy(owner: LifecycleOwner) {
         context.launcher.deviceProfile.inv.removeOnChangeListener(this)
@@ -195,13 +230,7 @@ class LawnchairAlphabeticalAppsList<T>(
         if (!isMainList) return
         val pending = pendingOrder ?: return
         pendingOrder = null
-        val entities = pending.mapIndexed { index, app ->
-            DrawerAppOrderEntity(componentKey = app.toComponentKey().toString(), rank = index)
-        }
-        drawerAppOrder = entities.associate { it.componentKey to it.rank }
-        context.launcher.lifecycleScope.launch {
-            AppDatabase.INSTANCE.get(context).drawerAppOrderDao().replaceAll(entities)
-        }
+        persistOrder(pending)
         onAppsUpdated()
     }
 
@@ -216,15 +245,27 @@ class LawnchairAlphabeticalAppsList<T>(
         if (!isMainList) return
         val reordered = movedTo(pendingOrder ?: getOrderedApps(), moved, insertIndex)
         pendingOrder = null
-
-        val entities = reordered.mapIndexed { index, app ->
-            DrawerAppOrderEntity(componentKey = app.toComponentKey().toString(), rank = index)
-        }
-        drawerAppOrder = entities.associate { it.componentKey to it.rank }
-        context.launcher.lifecycleScope.launch {
-            AppDatabase.INSTANCE.get(context).drawerAppOrderDao().replaceAll(entities)
-        }
+        persistOrder(reordered)
         onAppsUpdated()
+    }
+
+    /**
+     * Morrowa §10.38.1 G-2: persists [appsInOrder] into the unified DrawerOrder. Writes the whole
+     * displayed sequence (current folders at their positions -- a top block through tasks G/H --
+     * then the apps in the given order) as rank 0..N, so every reorder renumbers the entire list
+     * and folder rank never needs separate bookkeeping. Reflected optimistically in [drawerOrder] so
+     * the immediately-following onAppsUpdated() already sees the new ranks.
+     */
+    private fun persistOrder(appsInOrder: List<AppInfo>) {
+        val entries = orderedFolderEntries() + appsInOrder.map { DrawerEntry.App(it) }
+        val entities = entries.mapIndexed { index, entry ->
+            DrawerOrderEntity(key = entry.key(), rank = index)
+        }
+        drawerOrder = entities.associate { it.key to it.rank }
+        drawerOrderSeeded = true
+        context.launcher.lifecycleScope.launch {
+            AppDatabase.INSTANCE.get(context).drawerOrderDao().replaceAll(entities)
+        }
     }
 
     /**
@@ -286,12 +327,45 @@ class LawnchairAlphabeticalAppsList<T>(
         }
     }
 
-    private fun getSortedFolders(): List<FolderInfo> {
-        val folderOrder = FolderOrderUtils.stringToIntList(prefs.drawerListOrder.get())
-        return folderList.sortedWith(
-            compareBy { folder ->
-                folderOrder.indexOf(folder.id).takeIf { it != -1 } ?: Int.MAX_VALUE
-            },
+    /**
+     * Morrowa §10.38.1 G-1: resolves the App Drawer folders that should be shown -- each folder's
+     * stored contents re-resolved against the live [AllAppsStore] and passed through the existing
+     * `size > 1` display gate. Carries the canonical [FolderInfo.id] onto the display FolderInfo
+     * (fact g fix) so AdapterItem identity can key off id, not just title. Unordered (see
+     * [orderedFolderEntries]).
+     */
+    private fun resolveFolderEntries(): List<DrawerEntry.Folder> = folderList.mapNotNull { folder ->
+        val contents = folder.getContents()
+        val folderApps = contents.mapNotNull { app -> appsStore.getApp(app.componentKey) }
+        // Morrowa §10.35 F-B: reveals whether the display gate (resolved size > 1) is what drops a
+        // freshly-created folder (D1'), separately from whether it was emitted (D2).
+        Log.d(
+            FOLDER_TAG,
+            "resolveFolderEntries folder (id=${folder.id}, '${folder.title}'): " +
+                "contents=${contents.size} resolved=${folderApps.size} shown=${folderApps.size > 1}",
+        )
+        if (folderApps.size <= 1) return@mapNotNull null
+        val folderInfo = FolderInfo().apply {
+            id = folder.id
+            title = folder.title
+            folderApps.forEach { add(it) }
+        }
+        DrawerEntry.Folder(folderInfo)
+    }
+
+    /**
+     * Morrowa §10.38.1 G-1: [resolveFolderEntries] in display order -- by unified DrawerOrder folder
+     * rank when present, else by the legacy `drawerListOrder` pref (the pre-G folder order, kept
+     * only as a pre-seed fallback so upgrade appearance is unchanged; the pref is otherwise no
+     * longer read/written, §10.38.5 risk 1).
+     */
+    private fun orderedFolderEntries(): List<DrawerEntry.Folder> {
+        val legacy = FolderOrderUtils.stringToIntList(prefs.drawerListOrder.get())
+        return resolveFolderEntries().sortedWith(
+            compareBy(
+                { drawerOrder[it.key()] ?: Int.MAX_VALUE },
+                { legacy.indexOf(it.info.id).takeIf { i -> i != -1 } ?: Int.MAX_VALUE },
+            ),
         )
     }
 
@@ -307,7 +381,6 @@ class LawnchairAlphabeticalAppsList<T>(
     override fun addAppsWithSections(appList: List<AppInfo?>?, startPosition: Int): Int {
         if (appList.isNullOrEmpty()) return startPosition
         val drawerListDefault = prefs.drawerList.get()
-        filteredList.clear()
         var position = startPosition
 
         // Show app drawer folders only on main profile, to prevent state complexity
@@ -330,34 +403,97 @@ class LawnchairAlphabeticalAppsList<T>(
                 position++
             }
         } else {
-            getSortedFolders().forEach { folder ->
-                val contents = folder.getContents()
-                val folderApps = contents.mapNotNull { app ->
-                    appsStore.getApp(app.componentKey)
-                }
-                // Morrowa §10.35 F-B: reveals whether the display gate (resolved size > 1) is what
-                // drops a freshly-created folder (D1'), separately from whether it was emitted (D2).
-                Log.d(
-                    FOLDER_TAG,
-                    "addAppsWithSections folder (id=${folder.id}, '${folder.title}'): " +
-                        "contents=${contents.size} resolved=${folderApps.size} shown=${folderApps.size > 1}",
-                )
-                if (folderApps.size > 1) {
-                    val folderInfo = FolderInfo()
-                    folderInfo.title = folder.title
-                    mAdapterItems.add(AdapterItem.asFolder(folderInfo))
-                    folderApps.forEach { app ->
-                        folderInfo.add(app)
-                        if (prefs.folderApps.get()) filteredList.add(app)
+            // Morrowa §10.38.1 G-1/G-2: single rank-merge walk over the unified folder+app order.
+            val entries = buildOrderedEntries(appList.mapNotNull { it })
+            var lastSectionName: String? = null
+            entries.forEach { entry ->
+                when (entry) {
+                    is DrawerEntry.Folder -> {
+                        mAdapterItems.add(AdapterItem.asFolder(entry.info))
+                        position++
                     }
-                    position++
+                    is DrawerEntry.App -> {
+                        val info = entry.info
+                        mAdapterItems.add(AdapterItem.asApp(info))
+                        // Reproduce base addAppsWithSections' fast-scroll sectioning
+                        // (AlphabeticalAppsList.java:526-537): a new FastScrollSectionInfo whenever
+                        // the section letter changes across consecutive app items.
+                        val sectionName = info.sectionName
+                        if (sectionName != lastSectionName) {
+                            lastSectionName = sectionName
+                            fastScrollerSections.add(
+                                AlphabeticalAppsList.FastScrollSectionInfo(sectionName, position),
+                            )
+                        }
+                        position++
+                    }
                 }
             }
-            val remainingApps = appList.filterNot { app -> filteredList.contains(app) && prefs.folderApps.get() }
-            position = super.addAppsWithSections(remainingApps, position)
+            maybeSeedDrawerOrder(entries)
         }
 
         return position
+    }
+
+    /**
+     * Morrowa §10.38.1 G-1/G-2 read path: builds the unified display sequence of folders + apps.
+     * Folders resolve through the `size > 1` gate ([resolveFolderEntries]); folder-member apps are
+     * dropped from the app list when `pref_hideFolderApps` is on. The sequence is a rank-merge of
+     * both by their DrawerOrder rank (folders before apps on a tie, unranked apps kept in comparator
+     * order at the end). Before the runtime seed lands -- DrawerOrder empty, or not every displayed
+     * folder is ranked yet (e.g. folders emitted after the seed ran) -- it falls back to the classic
+     * "folders as a top block, then apps" layout, which is exactly the pre-G appearance and what the
+     * seed snapshots.
+     */
+    private fun buildOrderedEntries(appList: List<AppInfo>): List<DrawerEntry> {
+        val folderEntries = orderedFolderEntries()
+        val hideMembers = prefs.folderApps.get()
+        val memberKeys = if (hideMembers) {
+            folderEntries.flatMap { fe ->
+                fe.info.getContents().mapNotNull { (it as? AppInfo)?.toComponentKey()?.toString() }
+            }.toSet()
+        } else {
+            emptySet()
+        }
+        val appEntries = appList
+            .filterNot { hideMembers && memberKeys.contains(it.toComponentKey().toString()) }
+            .map { DrawerEntry.App(it) }
+
+        val allFoldersRanked = folderEntries.isNotEmpty() &&
+            folderEntries.all { drawerOrder.containsKey(it.key()) }
+        if (drawerOrder.isEmpty() || !allFoldersRanked) {
+            return folderEntries + appEntries
+        }
+        return (folderEntries + appEntries).sortedWith(
+            compareBy(
+                { drawerOrder[it.key()] ?: Int.MAX_VALUE },
+                { if (it is DrawerEntry.Folder) 0 else 1 },
+            ),
+        )
+    }
+
+    /**
+     * Morrowa §10.38.1 G-1 runtime data migration: if the unified DrawerOrder is still empty but
+     * there is a pre-G order to preserve (any folders, or a legacy app manual order), snapshot the
+     * current display sequence [entries] (folders top block, then apps) at rank 0..N. One-shot per
+     * session ([drawerOrderSeeded]); the resulting appearance is identical -- only later reorders
+     * and folder creation start interleaving. No-op for a genuinely fresh user (no folders, no
+     * reorders): DrawerOrder stays empty and the list is plain alphabetical.
+     */
+    private fun maybeSeedDrawerOrder(entries: List<DrawerEntry>) {
+        if (!isMainList || drawerOrderSeeded) return
+        if (drawerOrder.isNotEmpty()) {
+            drawerOrderSeeded = true
+            return
+        }
+        val hasLegacyOrder = folderList.isNotEmpty() || drawerAppOrder.isNotEmpty()
+        if (!hasLegacyOrder || entries.isEmpty()) return
+        drawerOrderSeeded = true
+        val seed = entries.mapIndexed { index, entry -> DrawerOrderEntity(key = entry.key(), rank = index) }
+        drawerOrder = seed.associate { it.key to it.rank }
+        context.launcher.lifecycleScope.launch {
+            AppDatabase.INSTANCE.get(context).drawerOrderDao().replaceAll(seed)
+        }
     }
 
     override fun onIdpChanged(modelPropertiesChanged: Boolean) {
@@ -375,5 +511,8 @@ class LawnchairAlphabeticalAppsList<T>(
 
     private companion object {
         private const val FOLDER_TAG = "MorrowaFolder"
+
+        // Morrowa §10.38.1 G-1: DrawerOrder key namespace for apps (see [DrawerEntry.App.key]).
+        private const val APP_PREFIX = "app:"
     }
 }

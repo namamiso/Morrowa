@@ -1977,3 +1977,27 @@ drag = Folder:
 | (4) 統合列と FolderItems の双方向整合 | H-3（追加=列から除去+items 追記）/ I（解除=items 削除+列へ展開）を各1関数に集約し、楽観反映とセットで実装 |
 
 **実装順（各タスクでビルド→実機確認→コミット+push、§10.32.2 遵守）**: G1 → G2 → G3 → H1 → H2 → I → J1 → J2。G1/G2 は「挙動不変」の受け入れ条件を持つ純リファクタなので、ここで回帰（並び替え・fast scroll・検索・Work タブ・フォルダ表示・設定画面）を厚めに確認してから G3 以降の挙動変更に進む。§10.36 の残項目（F-C の左右対称の実機確認、`MorrowaFolder` ログによる D2/D1' 確定）は G1 の実機確認と同じセッションで一緒に消化する。
+### 10.39 タスクG・J の並行実装・レビュー・統合（2026-07-10）
+
+§10.38 の依存関係から並行可能な **G連鎖（要望A の土台）と J連鎖（要望D・G非依存）** を、worktree 分離の2エージェントでオーケストレーションして実装。各エージェントに詳細レポートを義務付け、統括（Claude）がレポートと実コードを突き合わせてレビューした。
+
+**前提整備**: F-A/F-B/F-C（＋フォルダ機能 rebuild 一式、§10.24-10.36）を `0622086f20` としてコミット+push（git identity 未設定を `namamiso <hanpenneko@gmail.com>` で解決）。worktree はコミットから分岐するため先行コミットが必須だった。`local.properties`(sdk.dir) は gitignore で worktree に無いため各エージェントにコピー手順を付与。
+
+**運用上の知見（重要）**: エージェントが foreground の gradle ビルド（数分・無出力）を実行すると 600s のストリーム・ウォッチドッグでストールする。→ 「**エージェントはビルドしない。実装+コミット+レポートまで。コンパイルは統括が回して差し戻す**」方針に切替え。両者ともこの方針で完走。
+
+**タスクG（`worktree-agent-ab2a5f5…`, 4コミット: G1 `2455d89` / G2 `8170615` / G3 `6c01525` / schema `d3e4883`）**:
+- 実装: 新テーブル `DrawerOrder(key,rank)`（namespaced `app:` / `folder:`）、v4→v5 マイグレーション（CREATE のみ）＋ランタイムシード（`maybeSeedDrawerOrder`：drawerOrder 空かつ旧データ有りで現表示順を rank 0..N 保存、新規ユーザーは非シード）、読み walk（`buildOrderedEntries`：フォールバック＝従来上部ブロック／rank-merge、fast-scroll セクション再現）、`pendingOrder` の `DrawerEntry` 化、フォルダ生成を drop 位置に、fact g 修正（canonical id 引き継ぎ＋`isSameAs` を `id>0` 同士は id 比較）、設定画面の並び替えを `DrawerOrder` へ（`reorderDrawerFolders`）。
+- レビュー確定の逸脱3点（妥当）: ①app 書き込みを G2→G1 前倒し（read/write 整合上必然）②`isSameAs` は `id != 0` でなく **`id > 0`**（`NO_ID=-1` を正しく反映）③`drawerListOrder` は設定画面のフォールバック順として書込維持。
+- 要デバイス確認（レポート申告）: フォルダがアプリ間に入った時の fast-scroll、シードのタイミング（フォルダ遅延ロード時）、`hideFolderApps=false` 時のメンバー位置、G3 の一瞬のちらつき。
+
+**タスクJ（`worktree-agent-a8190b…`, 2コミット: J1 `cc910c6` / J2 `b1dd9d6`）**:
+- 設計前提2つが誤りと判明（レポートで訂正）: (i) フォルダ内長押しは `Folder.onLongClick → beginDragShared → PopupContainerWithArrow` を通り **state ゲート無し**で既に Home と同じメニューが出る → **J2 はコメントのみ**。(ii) `Folder.onDragStart` が drawer フォルダを**あらゆる drag で閉じていた**ため内部並び替えも不可能だった → 並び替えの**有効化**が必要。
+- 実装（全て `isInAppDrawer()` ガード）: `onDragStart` の即閉じ削除、`onDropCompleted` に `effectiveSuccess = success && !(isInAppDrawer() && target != this)`（drag-out は失敗扱いで item を戻す＝J3 dead-end 維持、内部並び替え target==this は不変）、`DrawerFolderReorder.persistOrder`（`@JvmStatic`・id==0 スキップ・`filterIsInstance<AppInfo>`）で Room 永続化。
+- 要デバイス確認: drag-out で item が確実に戻るか、内部 drag 中に上部バー（add-to-home/uninstall）が出ないか。
+
+**検証・統合**:
+- 単体コンパイル: J `BUILD SUCCESSFUL 2m57s` / G `5m49s`（KSP が schema v5 JSON 生成→G ブランチにコミット）。
+- 16-dev へ G→J の順で `--no-ff` マージ（`f69fdba` / `57f0f7a`）。**ファイル競合ゼロ**（G=主リスト系、J=Folder 系、`FolderViewModel` は G のみ変更）。
+- 統合コンパイル（マージ済み）: `BUILD SUCCESSFUL 4m12s`。実機 `R5CT3378XTJ` へインストール。
+
+**未実施**: 実機確認（上記 G/J の受け入れ条件＋要確認項目、§10.36 の F-C 左右対称・`MorrowaFolder` の D2/D1' 確定を同セッションで消化）。push は実機 OK 後。次は第2バッチ H（フォルダ drag＋既存フォルダ追加）→ I（解除ポップアップ）。

@@ -82,10 +82,13 @@ class FolderViewModel(
      * folders observer rebuilds with the new folder's contents already present -- creating the
      * folder shows it in place, with no relaunch needed.
      */
-    fun createFolderWithApps(title: String, appInfos: List<AppInfo>) {
+    fun createFolderWithApps(title: String, appInfos: List<AppInfo>, onCreated: (Int) -> Unit = {}) {
         viewModelScope.launch {
-            repository.createFolderWithItems(title, appInfos)
+            val newId = repository.createFolderWithItems(title, appInfos)
             reloadHelper.reloadGrid()
+            // Morrowa §10.38.1 G-3: hand the canonical folder id back so the unified DrawerOrder can
+            // be (re)written with the real "folder:<id>" key in place of the optimistic one.
+            onCreated(newId)
         }
     }
 
@@ -93,6 +96,17 @@ class FolderViewModel(
         viewModelScope.launch {
             repository.deleteFolderInfo(id)
             reloadHelper.reloadGrid()
+        }
+    }
+
+    /**
+     * Morrowa §10.38.1 G-2 (settings integration): reorders App Drawer folders within the unified
+     * DrawerOrder from the settings screen. The App Drawer observes DrawerOrder directly, so no
+     * reloadGrid is needed -- the drawer picks up the new folder order on its next emission.
+     */
+    fun reorderFolders(newFolderIds: List<Int>) {
+        viewModelScope.launch {
+            repository.reorderDrawerFolders(newFolderIds)
         }
     }
 }

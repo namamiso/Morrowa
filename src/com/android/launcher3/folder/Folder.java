@@ -509,12 +509,11 @@ public class Folder extends AbstractFloatingView implements ClipPathView, DragSo
         if (dragObject.dragSource != this) {
             return;
         }
-        if (isInAppDrawer()) {
-            close(true);
-            // LC-Note: Do not remove item
-            return;
-        }
-        
+        // Morrowa §10.38.4 J1: a drawer folder used to close here on any drag start (fact d), which
+        // made reordering items *inside* the folder impossible. Fall through to the normal
+        // drag-start path (remove the dragged view + suppress content updates) so items can be
+        // reordered. Dragging an item *out* of a drawer folder stays a safe no-op: onDropCompleted
+        // forces any drop that does not land back on this folder to return the item (§10.38.4 J3).
         mContent.removeItem(mCurrentDragView);
         mItemsInvalidated = true;
 
@@ -1296,7 +1295,12 @@ public class Folder extends AbstractFloatingView implements ClipPathView, DragSo
     @Override
     public void onDropCompleted(final View target, final DragObject d,
             final boolean success) {
-        if (success) {
+        // Morrowa §10.38.4 J3 / fact d: a drawer folder's item must never leave the folder via a
+        // drag. Treat any drop that did not land back on this folder as a failed drop so the item
+        // is returned to the folder instead of being moved out (or collapsing the folder). This
+        // keeps drag-out a safe dead-end while the in-folder reorder path (§10.38.4 J1) stays live.
+        final boolean effectiveSuccess = success && !(isInAppDrawer() && target != this);
+        if (effectiveSuccess) {
             if (getItemCount() <= 1) {
                 mDeleteFolderOnDropCompleted = true;
             }
@@ -1324,7 +1328,7 @@ public class Folder extends AbstractFloatingView implements ClipPathView, DragSo
         if (target != this) {
             if (mOnExitAlarm.alarmPending()) {
                 mOnExitAlarm.cancelAlarm();
-                if (!success) {
+                if (!effectiveSuccess) {
                     mSuppressFolderDeletion = true;
                 }
                 mScrollPauseAlarm.cancelAlarm();
@@ -1346,6 +1350,13 @@ public class Folder extends AbstractFloatingView implements ClipPathView, DragSo
             // Show the animation, next time something is added to the folder.
             mInfo.setOption(FolderInfo.FLAG_MULTI_PAGE_ANIMATION, false,
                     mActivityContext.getModelWriter());
+        }
+
+        // Morrowa §10.38.4 J1: home folders persist through the launcher model, but drawer folders
+        // are backed by Room. Write the (possibly reordered) contents order to Room here, the
+        // reorder-commit point. Optimistic folders (id == 0) are skipped inside the helper.
+        if (isInAppDrawer()) {
+            app.lawnchair.allapps.DrawerFolderReorder.persistOrder(getContext(), mInfo);
         }
     }
 

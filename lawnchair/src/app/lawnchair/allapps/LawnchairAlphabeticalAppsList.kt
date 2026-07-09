@@ -18,6 +18,7 @@ import com.android.launcher3.InvariantDeviceProfile.OnIDPChangeListener
 import com.android.launcher3.allapps.AllAppsStore
 import com.android.launcher3.allapps.AlphabeticalAppsList
 import com.android.launcher3.allapps.BaseAllAppsAdapter.AdapterItem
+import com.android.launcher3.allapps.BaseAllAppsAdapter.VIEW_TYPE_FOLDER
 import com.android.launcher3.allapps.BaseAllAppsAdapter.VIEW_TYPE_ICON
 import com.android.launcher3.allapps.PrivateProfileManager
 import com.android.launcher3.allapps.WorkProfileManager
@@ -70,9 +71,9 @@ class LawnchairAlphabeticalAppsList<T>(
     // Morrowa D3(i): in-memory-only order shown live while a reorder drag is in progress (see
     // SearchContainerView#onDragOver). Not persisted until commitPendingReorder(); reverted by
     // cancelPendingReorder() if the drag ends without a drop here. Null when no drag is active.
-    // §10.38.1 G-1: only App entries move in task G, but this is a list of entries so folder drag
-    // (task H) is a pure extension.
-    private var pendingOrder: MutableList<AppInfo>? = null
+    // §10.38.1 G-2: the full unified entry sequence (folders + apps). Only App entries move in task
+    // G, but the preview holds the whole list so folder drag (task H) is a pure extension.
+    private var pendingOrder: MutableList<DrawerEntry>? = null
 
     // Morrowa §10.19.2 R1: component key of the app currently being dragged out of this list, if
     // any. Read by SearchContainerView's OnChildAttachStateChangeListener to hide that one icon
@@ -133,8 +134,10 @@ class LawnchairAlphabeticalAppsList<T>(
         // DiffUtil and fast scroll stay consistent. Live preview wins; then the persisted app ranks
         // (from DrawerOrder "app:" keys, with the legacy DrawerAppOrder as a pre-seed fallback).
         pendingOrder?.let { pending ->
-            val rank = pending.withIndex().associate { (index, app) ->
-                app.toComponentKey().toString() to index
+            // Rank apps by their order among the App entries in the live preview (folders are
+            // ignored here -- they only create gaps, and this comparator only orders apps vs apps).
+            val rank = pending.filterIsInstance<DrawerEntry.App>().withIndex().associate { (index, entry) ->
+                entry.info.toComponentKey().toString() to index
             }
             return rankComparator(rank, alphabetical)
         }
@@ -230,34 +233,32 @@ class LawnchairAlphabeticalAppsList<T>(
         if (!isMainList) return
         val pending = pendingOrder ?: return
         pendingOrder = null
-        persistOrder(pending)
+        persistEntries(pending)
         onAppsUpdated()
     }
 
     /**
-     * Moves [moved] to [insertIndex] (clamped to the valid range) within the main list's manual
-     * order, seeding the order from the current display order (or the live preview order, if a
-     * reorder drag is in progress) first if this is the first manual reorder. Persists to
-     * [app.lawnchair.data.appdrawer.service.DrawerAppOrderDao] and refreshes the list. No-op if
-     * this isn't the main list.
+     * Moves [moved] to app-space [insertIndex] (clamped to the valid range) within the main list's
+     * manual order, seeding from the current display order (or the live preview order, if a reorder
+     * drag is in progress) first. Persists the whole unified sequence to
+     * [app.lawnchair.data.appdrawer.service.DrawerOrderDao] and refreshes the list. No-op if this
+     * isn't the main list.
      */
     fun reorderApp(moved: AppInfo, insertIndex: Int) {
         if (!isMainList) return
-        val reordered = movedTo(pendingOrder ?: getOrderedApps(), moved, insertIndex)
+        val reordered = movedAppTo(pendingOrder ?: currentDisplayEntries(), moved, insertIndex)
         pendingOrder = null
-        persistOrder(reordered)
+        persistEntries(reordered)
         onAppsUpdated()
     }
 
     /**
-     * Morrowa §10.38.1 G-2: persists [appsInOrder] into the unified DrawerOrder. Writes the whole
-     * displayed sequence (current folders at their positions -- a top block through tasks G/H --
-     * then the apps in the given order) as rank 0..N, so every reorder renumbers the entire list
-     * and folder rank never needs separate bookkeeping. Reflected optimistically in [drawerOrder] so
-     * the immediately-following onAppsUpdated() already sees the new ranks.
+     * Morrowa §10.38.1 G-2: persists [entries] (the whole displayed folder+app sequence) into the
+     * unified DrawerOrder at rank 0..N, so every reorder renumbers the entire list and folder rank
+     * never needs separate bookkeeping. Reflected optimistically in [drawerOrder] so the
+     * immediately-following onAppsUpdated() already sees the new ranks.
      */
-    private fun persistOrder(appsInOrder: List<AppInfo>) {
-        val entries = orderedFolderEntries() + appsInOrder.map { DrawerEntry.App(it) }
+    private fun persistEntries(entries: List<DrawerEntry>) {
         val entities = entries.mapIndexed { index, entry ->
             DrawerOrderEntity(key = entry.key(), rank = index)
         }
@@ -269,6 +270,19 @@ class LawnchairAlphabeticalAppsList<T>(
     }
 
     /**
+     * Morrowa §10.38.1 G-2: the current unified display sequence, read straight off the adapter
+     * items (folders carry their canonical [FolderInfo], apps their [AppInfo]). Seed for the live
+     * preview and the point-reorder commit.
+     */
+    private fun currentDisplayEntries(): List<DrawerEntry> = mAdapterItems.mapNotNull { item ->
+        when (item.viewType) {
+            VIEW_TYPE_FOLDER -> DrawerEntry.Folder(item.folderInfo)
+            VIEW_TYPE_ICON -> item.itemInfo?.let { DrawerEntry.App(it) }
+            else -> null
+        }
+    }
+
+    /**
      * Morrowa D3(i): starts a live (in-memory only, not persisted) reorder preview seeded from
      * the current display order, if one isn't already in progress. Call [previewReorder] as the
      * drag moves and either [reorderApp] (to commit) or [cancelPendingReorder] (to revert) when
@@ -276,7 +290,7 @@ class LawnchairAlphabeticalAppsList<T>(
      */
     fun beginPendingReorder() {
         if (!isMainList || pendingOrder != null) return
-        pendingOrder = getOrderedApps().toMutableList()
+        pendingOrder = currentDisplayEntries().toMutableList()
     }
 
     /** Morrowa §10.30.6: true while a live reorder preview is in progress (a moved app is being
@@ -291,7 +305,7 @@ class LawnchairAlphabeticalAppsList<T>(
      */
     fun previewReorder(moved: AppInfo, insertIndex: Int) {
         val current = pendingOrder ?: return
-        pendingOrder = movedTo(current, moved, insertIndex).toMutableList()
+        pendingOrder = movedAppTo(current, moved, insertIndex).toMutableList()
         onAppsUpdated()
     }
 
@@ -306,10 +320,26 @@ class LawnchairAlphabeticalAppsList<T>(
         onAppsUpdated()
     }
 
-    private fun movedTo(order: List<AppInfo>, moved: AppInfo, insertIndex: Int): List<AppInfo> {
-        val movedKey = moved.toComponentKey().toString()
-        val result = order.filterNot { it.toComponentKey().toString() == movedKey }.toMutableList()
-        result.add(insertIndex.coerceIn(0, result.size), moved)
+    /**
+     * Morrowa §10.38.1 G-2: moves [moved]'s App entry to app-space [appInsertIndex] within [order]
+     * (the full folder+app entry list), keeping every folder entry in place. [appInsertIndex] counts
+     * apps only -- matching how [app.lawnchair.allapps.views.SearchContainerView] resolves a drop
+     * target against [getOrderedApps] -- and is translated to an entry-space position (insert just
+     * before the app currently at that app-index, or after the last app when past the end). This
+     * preserves the pre-G behaviour of [movedTo] in app-space while carrying folders unchanged.
+     */
+    private fun movedAppTo(order: List<DrawerEntry>, moved: AppInfo, appInsertIndex: Int): List<DrawerEntry> {
+        val movedKey = "$APP_PREFIX${moved.toComponentKey()}"
+        val without = order.filterNot { it.key() == movedKey }
+        val remainingApps = without.filterIsInstance<DrawerEntry.App>()
+        val entryIndex = if (appInsertIndex >= remainingApps.size) {
+            val lastAppIdx = without.indexOfLast { it is DrawerEntry.App }
+            if (lastAppIdx == -1) without.size else lastAppIdx + 1
+        } else {
+            without.indexOf(remainingApps[appInsertIndex.coerceAtLeast(0)])
+        }
+        val result = without.toMutableList()
+        result.add(entryIndex.coerceIn(0, result.size), DrawerEntry.App(moved))
         return result
     }
 

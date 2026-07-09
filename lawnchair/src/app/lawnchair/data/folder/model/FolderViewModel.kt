@@ -95,6 +95,17 @@ class FolderViewModel(
             reloadHelper.reloadGrid()
         }
     }
+
+    /**
+     * Morrowa §10.38.1 G-2 (settings integration): reorders App Drawer folders within the unified
+     * DrawerOrder from the settings screen. The App Drawer observes DrawerOrder directly, so no
+     * reloadGrid is needed -- the drawer picks up the new folder order on its next emission.
+     */
+    fun reorderFolders(newFolderIds: List<Int>) {
+        viewModelScope.launch {
+            repository.reorderDrawerFolders(newFolderIds)
+        }
+    }
 }
 
 object FolderOrderUtils {

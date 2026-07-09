@@ -198,28 +198,61 @@ class LawnchairAlphabeticalAppsList<T>(
         .toList()
 
     /**
-     * Morrowa §10.27 (R4): creates a new App Drawer folder titled [title] containing [apps]
-     * (typically the dragged app + the app it was dropped onto). Thin delegate to
-     * [FolderViewModel.createFolderWithApps], which writes folder + members atomically and calls
-     * reloadGrid so the folder appears in place (§10.32.3). The member apps are hidden from the
-     * main list automatically on reload when `pref_hideFolderApps` is set (see
-     * [addAppsWithSections]), so no manual-order bookkeeping is needed here.
+     * Morrowa §10.27 (R4) + §10.38.1 G-3: creates a new App Drawer folder titled [title] containing
+     * [apps] -- `apps[0]` is the drop-target app (the app dragged onto), `apps[1]` the dragged app.
+     * The folder is placed in the unified order **at the drop-target app's slot** (要望A: created
+     * where it was dropped, not pinned to a top block), with both member apps' entries removed. The
+     * delegate [FolderViewModel.createFolderWithApps] writes folder + members atomically and calls
+     * reloadGrid (§10.32.3); the member apps are then hidden from the main list when
+     * `pref_hideFolderApps` is set (see [addAppsWithSections]).
      */
     fun createFolder(title: String, apps: List<AppInfo>) {
-        if (!isMainList) return
-        viewModel.createFolderWithApps(title, apps)
+        if (!isMainList || apps.isEmpty()) return
+        val target = apps.first()
+        val memberKeys = apps.map { "$APP_PREFIX${it.toComponentKey()}" }.toSet()
+
+        // Build the new ordered key list: current display minus the member apps, with the folder
+        // inserted at the drop-target app's slot (the count of surviving entries before it).
+        val entries = currentDisplayEntries()
+        val targetKey = "$APP_PREFIX${target.toComponentKey()}"
+        val targetIdx = entries.indexOfFirst { it.key() == targetKey }
+        val survivorsBeforeTarget = if (targetIdx >= 0) {
+            entries.take(targetIdx).count { !memberKeys.contains(it.key()) }
+        } else {
+            entries.count { !memberKeys.contains(it.key()) }
+        }
+
         // Morrowa §10.35 F-A: optimistic local reflection -- show the folder the instant the drop
-        // lands, without waiting on the folders flow emission / toItemInfo resolution / reloadGrid
-        // (Home's createUserFolderIfNecessary shows the FolderIcon immediately and persists in the
-        // background). The next canonical observeFolders emission replaces folderList wholesale, so
-        // this optimistic entry (id left 0 -- getSortedFolders sorts unknown ids last) is naturally
-        // superseded once the DB round-trips.
+        // lands, without waiting on the folders flow emission / reloadGrid (Home's
+        // createUserFolderIfNecessary shows the FolderIcon immediately and persists in the
+        // background). The optimistic FolderInfo keeps the default id (NO_ID), so its key is
+        // "folder:-1" until the canonical id arrives; the next observeFolders emission replaces
+        // folderList wholesale.
         val optimistic = FolderInfo().apply {
             this.title = title
             apps.forEach { add(it) }
         }
+        val optimisticKey = DrawerEntry.Folder(optimistic).key()
+        val orderedKeys = entries
+            .filterNot { memberKeys.contains(it.key()) }
+            .map { it.key() }
+            .toMutableList()
+            .apply { add(survivorsBeforeTarget.coerceIn(0, size), optimisticKey) }
+
         folderList.add(optimistic)
+        // Reflect the placement in memory now (no DB write yet -- the canonical id isn't known);
+        // updateAdapterItems() then renders the folder at the drop slot immediately.
+        drawerOrder = orderedKeys.mapIndexed { index, key -> key to index }.toMap()
+        drawerOrderSeeded = true
         updateAdapterItems()
+
+        // Persist once the atomic create returns, swapping the optimistic key for the canonical id.
+        viewModel.createFolderWithApps(title, apps) { newId ->
+            val finalKeys = orderedKeys.map {
+                if (it == optimisticKey) "$FOLDER_PREFIX$newId" else it
+            }
+            persistOrderKeys(finalKeys)
+        }
     }
 
     /**
@@ -258,10 +291,12 @@ class LawnchairAlphabeticalAppsList<T>(
      * never needs separate bookkeeping. Reflected optimistically in [drawerOrder] so the
      * immediately-following onAppsUpdated() already sees the new ranks.
      */
-    private fun persistEntries(entries: List<DrawerEntry>) {
-        val entities = entries.mapIndexed { index, entry ->
-            DrawerOrderEntity(key = entry.key(), rank = index)
-        }
+    private fun persistEntries(entries: List<DrawerEntry>) = persistOrderKeys(entries.map { it.key() })
+
+    /** Morrowa §10.38.1 G-2/G-3: writes [keys] (already in display order) to the unified DrawerOrder
+     * at rank 0..N, reflecting them in [drawerOrder] optimistically first. */
+    private fun persistOrderKeys(keys: List<String>) {
+        val entities = keys.mapIndexed { index, key -> DrawerOrderEntity(key = key, rank = index) }
         drawerOrder = entities.associate { it.key to it.rank }
         drawerOrderSeeded = true
         context.launcher.lifecycleScope.launch {
@@ -542,7 +577,8 @@ class LawnchairAlphabeticalAppsList<T>(
     private companion object {
         private const val FOLDER_TAG = "MorrowaFolder"
 
-        // Morrowa §10.38.1 G-1: DrawerOrder key namespace for apps (see [DrawerEntry.App.key]).
+        // Morrowa §10.38.1 G-1: DrawerOrder key namespaces (see [DrawerEntry.key]).
         private const val APP_PREFIX = "app:"
+        private const val FOLDER_PREFIX = "folder:"
     }
 }

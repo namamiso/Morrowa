@@ -82,10 +82,13 @@ class FolderViewModel(
      * folders observer rebuilds with the new folder's contents already present -- creating the
      * folder shows it in place, with no relaunch needed.
      */
-    fun createFolderWithApps(title: String, appInfos: List<AppInfo>) {
+    fun createFolderWithApps(title: String, appInfos: List<AppInfo>, onCreated: (Int) -> Unit = {}) {
         viewModelScope.launch {
-            repository.createFolderWithItems(title, appInfos)
+            val newId = repository.createFolderWithItems(title, appInfos)
             reloadHelper.reloadGrid()
+            // Morrowa §10.38.1 G-3: hand the canonical folder id back so the unified DrawerOrder can
+            // be (re)written with the real "folder:<id>" key in place of the optimistic one.
+            onCreated(newId)
         }
     }
 

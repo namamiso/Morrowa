@@ -373,9 +373,19 @@ public class AlphabeticalAppsList<T extends Context & ActivityContext> implement
         }
 
         if (mAdapter != null) {
-            DiffUtil.calculateDiff(new MyDiffCallback(oldItems, mAdapterItems), false)
+            DiffUtil.calculateDiff(new MyDiffCallback(oldItems, mAdapterItems), shouldDetectMoves())
                     .dispatchUpdatesTo(mAdapter);
         }
+    }
+
+    /**
+     * Morrowa §10.35 F-C: whether DiffUtil should detect moves when dispatching updates. Default
+     * false (AOSP behaviour). Subclasses enable it during a drag-reorder so DefaultItemAnimator
+     * plays a symmetric slide rather than the direction-asymmetric remove+insert that
+     * detectMoves=false yields (see docs §10.34.2).
+     */
+    protected boolean shouldDetectMoves() {
+        return false;
     }
 
     int addPrivateSpaceItems(int position) {

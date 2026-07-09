@@ -160,6 +160,52 @@ class LawnchairAlphabeticalAppsList<T>(
         .toList()
 
     /**
+     * Morrowa §10.27 (R4): creates a new App Drawer folder titled [title] containing [apps]
+     * (typically the dragged app + the app it was dropped onto). Thin delegate to
+     * [FolderViewModel.createFolderWithApps], which writes folder + members atomically and calls
+     * reloadGrid so the folder appears in place (§10.32.3). The member apps are hidden from the
+     * main list automatically on reload when `pref_hideFolderApps` is set (see
+     * [addAppsWithSections]), so no manual-order bookkeeping is needed here.
+     */
+    fun createFolder(title: String, apps: List<AppInfo>) {
+        if (!isMainList) return
+        viewModel.createFolderWithApps(title, apps)
+        // Morrowa §10.35 F-A: optimistic local reflection -- show the folder the instant the drop
+        // lands, without waiting on the folders flow emission / toItemInfo resolution / reloadGrid
+        // (Home's createUserFolderIfNecessary shows the FolderIcon immediately and persists in the
+        // background). The next canonical observeFolders emission replaces folderList wholesale, so
+        // this optimistic entry (id left 0 -- getSortedFolders sorts unknown ids last) is naturally
+        // superseded once the DB round-trips.
+        val optimistic = FolderInfo().apply {
+            this.title = title
+            apps.forEach { add(it) }
+        }
+        folderList.add(optimistic)
+        updateAdapterItems()
+    }
+
+    /**
+     * Morrowa §10.30.6 (修正5, WYSIWYG commit): persists the current live preview order exactly as
+     * shown (no drop-position recomputation), the drawer analogue of Home committing "the layout
+     * the user already sees" on drop rather than re-deriving it from the release coordinate. Used
+     * by [app.lawnchair.allapps.views.SearchContainerView.onDrop] when a reorder preview was
+     * active. No-op if this isn't the main list or no preview is in progress.
+     */
+    fun commitPendingOrder() {
+        if (!isMainList) return
+        val pending = pendingOrder ?: return
+        pendingOrder = null
+        val entities = pending.mapIndexed { index, app ->
+            DrawerAppOrderEntity(componentKey = app.toComponentKey().toString(), rank = index)
+        }
+        drawerAppOrder = entities.associate { it.componentKey to it.rank }
+        context.launcher.lifecycleScope.launch {
+            AppDatabase.INSTANCE.get(context).drawerAppOrderDao().replaceAll(entities)
+        }
+        onAppsUpdated()
+    }
+
+    /**
      * Moves [moved] to [insertIndex] (clamped to the valid range) within the main list's manual
      * order, seeding the order from the current display order (or the live preview order, if a
      * reorder drag is in progress) first if this is the first manual reorder. Persists to
@@ -192,6 +238,11 @@ class LawnchairAlphabeticalAppsList<T>(
         pendingOrder = getOrderedApps().toMutableList()
     }
 
+    /** Morrowa §10.30.6: true while a live reorder preview is in progress (a moved app is being
+     * shown at a not-yet-persisted position). Lets [app.lawnchair.allapps.views.SearchContainerView]
+     * choose between committing the preview as-is ([commitPendingOrder]) and a fresh point reorder. */
+    fun hasPendingReorder(): Boolean = pendingOrder != null
+
     /**
      * Morrowa D3(i): live-updates the in-memory preview order (no DB write) and refreshes the
      * list so icons visibly shift out of the way, matching Folder#realTimeReorder's real-time
@@ -223,6 +274,13 @@ class LawnchairAlphabeticalAppsList<T>(
 
     private fun observeFolders() {
         viewModel.foldersLiveData.observe(context as LifecycleOwner) { folders ->
+            // Morrowa §10.35 F-B: pins down D2 (emission never arrives after a drag-create) vs D1'
+            // (emission arrives but a folder's contents are unresolved). Kept permanently -- cheap.
+            Log.d(
+                FOLDER_TAG,
+                "observeFolders fired: ${folders.size} folders " +
+                    folders.joinToString { "(id=${it.id}, '${it.title}', contents=${it.getContents().size})" },
+            )
             folderList = folders.toMutableList()
             updateAdapterItems()
         }
@@ -273,9 +331,17 @@ class LawnchairAlphabeticalAppsList<T>(
             }
         } else {
             getSortedFolders().forEach { folder ->
-                val folderApps = folder.getContents().mapNotNull { app ->
+                val contents = folder.getContents()
+                val folderApps = contents.mapNotNull { app ->
                     appsStore.getApp(app.componentKey)
                 }
+                // Morrowa §10.35 F-B: reveals whether the display gate (resolved size > 1) is what
+                // drops a freshly-created folder (D1'), separately from whether it was emitted (D2).
+                Log.d(
+                    FOLDER_TAG,
+                    "addAppsWithSections folder (id=${folder.id}, '${folder.title}'): " +
+                        "contents=${contents.size} resolved=${folderApps.size} shown=${folderApps.size > 1}",
+                )
                 if (folderApps.size > 1) {
                     val folderInfo = FolderInfo()
                     folderInfo.title = folder.title
@@ -296,5 +362,18 @@ class LawnchairAlphabeticalAppsList<T>(
 
     override fun onIdpChanged(modelPropertiesChanged: Boolean) {
         onAppsUpdated()
+    }
+
+    /**
+     * Morrowa §10.35 F-C (要望2): only the App Drawer's live drag/reorder wants DiffUtil to detect
+     * moves (so [androidx.recyclerview.widget.DefaultItemAnimator] plays a symmetric slide instead
+     * of the direction-asymmetric remove+insert that detectMoves=false produces, §10.34.2). Scoped
+     * to an in-progress drag to keep the cost off the normal search / app-update paths, matching the
+     * drag-only ItemAnimator (§10.30.6).
+     */
+    override fun shouldDetectMoves(): Boolean = draggedComponentKey != null || pendingOrder != null
+
+    private companion object {
+        private const val FOLDER_TAG = "MorrowaFolder"
     }
 }

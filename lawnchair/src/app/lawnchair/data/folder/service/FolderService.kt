@@ -55,6 +55,22 @@ class FolderService @Inject constructor(
         folderDao.insertFolder(FolderInfoEntity(title = folderInfo.title.toString()))
     }
 
+    /**
+     * Morrowa §10.26 (R3): creates a brand-new folder titled [title] containing [appInfos] as its
+     * initial members (rank = list order), returning the generated folder id. Folder + items are
+     * written atomically (see [FolderDao.createFolderWithItems]) so the folders flow emits a
+     * fully-populated folder.
+     */
+    suspend fun createFolderWithItems(title: String, appInfos: List<AppInfo>): Int = withContext(Dispatchers.IO) {
+        folderDao.createFolderWithItems(
+            FolderInfoEntity(title = title),
+        ) { newId ->
+            appInfos.mapIndexed { index, appInfo ->
+                appInfo.toEntity(newId).copy(rank = index)
+            }
+        }
+    }
+
     suspend fun updateFolderInfo(folderInfo: FolderInfo, hide: Boolean = false) = withContext(Dispatchers.IO) {
         folderDao.updateFolderInfo(folderInfo.id, folderInfo.title.toString(), hide)
     }
@@ -80,8 +96,14 @@ class FolderService @Inject constructor(
             folderWithItems.items.sortedBy { it.rank }.forEach { itemEntity ->
                 // Consider caching toItemInfo results if componentKey lookups are slow
                 // and items don't change frequently without folder data changing
-                toItemInfo(itemEntity.componentKey)?.let { appInfo ->
+                val appInfo = toItemInfo(itemEntity.componentKey)
+                if (appInfo != null) {
                     domainFolderInfo.add(appInfo)
+                } else {
+                    // Morrowa §10.35 F-B: directly detects D1' (a folder emitted with a member whose
+                    // componentKey no longer resolves to an installed app, so the folder falls below
+                    // the display gate). Kept permanently -- only logs on the failure path.
+                    Log.w("MorrowaFolder", "toItemInfo unresolved for componentKey=${itemEntity.componentKey} (folder id=${folderWithItems.folder.id})")
                 }
             }
             domainFolderInfo

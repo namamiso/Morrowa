@@ -1252,3 +1252,728 @@ $env:Path="$env:JAVA_HOME\bin;$env:Path"
 結果: `BUILD SUCCESSFUL in 1m 10s`。新規/変更ファイル起因のエラーなし。
 
 未実施: 実機確認（並び替えの感度が Home と同等に感じられるか、既存修正（二重表示解消・発振解消・フォルダゾーンの dead zone）の再発がないか）。
+
+ユーザー確認（2026-07-07）: **感度・既存修正の再発なし、すべて完了**。
+
+### 10.26 R3（フォルダ作成基盤）実装記録（2026-07-07）
+
+§10.17.2 の設計に沿って、新規フォルダ + 中身を一括作成するデータ層を追加した。UI/drag との接続（R4）はまだ行っていない、純増のみの変更。
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/lawnchair/data/folder/service/FolderDao.kt` | `insertFolderReturningId(folder): Long`（`insertFolder` と同じ `@Insert(onConflict = REPLACE)` だが生成された row id を返す）と `createFolderWithItems(folder, items: (Int) -> List<FolderItemEntity>): Int`（`@Transaction`。`folder.copy(id = 0)` で必ず新規行として insert し、返った id を使って `items` ラムダから item 一覧を生成して `insertFolderItems` へ渡す）を追加 |
+| `lawnchair/src/app/lawnchair/data/folder/service/FolderService.kt` | `createFolderWithItems(title, appInfos): Int`（`FolderInfoEntity(title = title)` を作り、`appInfos` を `rank = index` で `FolderItemEntity` に変換して DAO の `createFolderWithItems` を呼ぶ） |
+| `lawnchair/src/app/lawnchair/data/folder/model/FolderViewModel.kt` | `createFolderWithApps(title, appInfos)`（既存の `createFolder`/`updateFolderItems` と同じパターン: `viewModelScope.launch` 内で repository 呼び出し後 `reloadHelper.reloadGrid()`） |
+
+実装方針の補足:
+
+- **既存 API との使い分け**: `insertFolder`（title のみ、既存の「設定画面から新規フォルダ作成」フロー用）、`updateFolderWithItems`（既存フォルダへの id 指定 upsert、フォルダ編集画面用）はどちらも変更していない。今回追加した `createFolderWithItems` 系だけが「新規フォルダ + 初期メンバーを1回で作る」経路。
+- **`insertFolderReturningId` が必要だった理由**: `FolderInfoEntity.id` は `@PrimaryKey(autoGenerate = true)` だが、既存の `insertFolder(folder: FolderInfoEntity)` は戻り値 `Unit` のため、Room が生成した新しい id を呼び出し元が知る手段がなかった。返り値を `Long` にした `insertFolderReturningId` を追加することで解決。
+- **既定タイトル**: `FolderViewModel.createFolderWithApps()` の呼び出し側（R4 実装時）で `R.string.my_folder_label`（`lawnchair/res/values/strings.xml:146`、既存の「新規フォルダ」既定名と共用）を渡す想定。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: `BUILD SUCCESSFUL in 5m 12s`。新規/変更ファイル起因のエラーなし。
+
+未実施: 実機での動作確認（R3 は UI/drag と未接続のため、この時点では実機で直接観察できる変化はない。R4 実装後にまとめて確認する）。
+
+### 10.27 R4（フォルダモードの接続）実装記録（2026-07-07）
+
+§10.19.2 R4 の設計に沿って、R2 の FOLDER ゾーンと R3 のフォルダ作成基盤を接続した。
+
+変更ファイル:
+
+| ファイル | 内容 |
+|---|---|
+| `lawnchair/src/app/lawnchair/allapps/LawnchairAlphabeticalAppsList.kt` | `createFolder(title, apps)` を追加。既存の `viewModel`（このインスタンスが `observeFolders()` 等で既に保持している `FolderViewModel`）の `createFolderWithApps()` へ薄く委譲するだけ |
+| `lawnchair/src/app/lawnchair/allapps/views/SearchContainerView.kt` | 大幅拡張。`hoverFolderTargetApp`（ホバー中に FOLDER ゾーンへ入った対象アプリ、`acceptDrop` が読む永続状態）、`scaledFolderTargetView` + `applyFolderHoverScale()`/`clearFolderHoverScale()`（対象アイコンを 1.0→1.15、150ms で拡大/復元）を追加。`lastTargetSlotKey`（スロットのみ）を `lastSlotSignature`（`"$slotKey:$zone"`、スロット+ゾーンの組）に置き換え。`acceptDrop`/`onDrop` は `hoverFolderTargetApp` が非 null なら `mainList.createFolder(...)` を呼ぶ分岐を追加し、着地アニメーションの座標計算を `animateDragViewOnto()` として reorder/フォルダ作成の両方から共有する形に整理 |
+
+実装方針の補足:
+
+- **ゾーンを識別子に含めた理由**: 当初の設計メモは「スロットが変わったときだけ再アーム」（Home の `mLastReorderX/Y` 相当）だったが、そのままではFOLDERゾーンとREORDERゾーンを同じアイコン上で行き来した場合（一度FOLDERに入って reorder プレビューをキャンセルした後、指を少し離してREORDERゾーンへ戻る等）に、スロットキーが変化しないため reorder プレビューの再スケジュールが発火しない問題があった。`slotKey` と `zone` の両方を識別子に含めることで、Home の `manageFolderFeedback()` が **毎回無条件に評価される**（`Workspace.java:2807`）という実際の挙動によりよく合わせつつ、reorder alarm の再アームは「識別子（スロット+ゾーン）が変わったときだけ」という制約を維持した。
+- **FOLDER ゾーンに入った際の reorder プレビュー取り消し**: `mainList.cancelPendingReorder()` を呼ぶことで、Home の `setDragMode()` が `DRAG_MODE_CREATE_FOLDER` へ入る際に `cleanupReorder(true)` を呼ぶのと同じ意図（フォルダモードとreorderの視覚状態が同時に出ないようにする）を実現した。
+- **drop 時の判定は「ホバー時に確定した状態」を使う**: `acceptDrop()` は `hoverFolderTargetApp`（`onDragOver` で設定され、`onDragExit` の `dragComplete=true` 分岐では消されない、`dragComplete=false` の genuine exit でのみクリアされる）を読むだけで、drop 座標での再判定はしない。これは Home の `mCreateUserFolderOnDrop`（`Workspace.java:2184`）と同じ設計思想。
+- **着地アニメーションの共通化**: `animateDropLanding()`（reorder 用）と `createFolderAndAnimateDrop()`（フォルダ作成用）が同じ `animateDragViewOnto(dragView, targetView)` を呼ぶよう整理した。どちらも「target の位置に着地→target を一瞬 INVISIBLE→アニメ終了で VISIBLE 復元」という同じパターンのため。
+- **フォルダ作成後の DragView 着地先**: フォルダ作成時、`targetApp` の現在の View 位置へ着地させる（`reloadGrid()` によってフォルダ節にまとめて表示されるようになるまでの間、視覚的な連続性を保つため）。取得できなければ即 `remove()`。
+- **新規フォルダのタイトル**: `resources.getString(R.string.my_folder_label)`（`com.android.launcher3.R`、既存の「新規フォルダ」既定名と共用、§10.17.2 で確認済み）。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: `BUILD SUCCESSFUL in 1m 35s`。新規/変更ファイル起因のエラーなし。
+
+未実施: 実機確認（§10.17.2/§10.19.2 の受け入れ条件: 深く重ねると target が拡大表示されるか、drop で2アプリ入りの新規フォルダがフォルダ節に作られるか、設定画面のフォルダ一覧にも見えるか、浅い重なりは従来どおり並び替えになるか、拡大表示がドロップ/キャンセル/バーへの寄り道いずれの経路でも残留しないか、ゴーストが出ないか、検索/fast scroll/Work タブ/Home 由来 drag の回帰）。
+
+### 10.28 R4 インストール記録（2026-07-07）
+
+`installLawnWithQuickstepGithubDebug` で実機（`SC-52C - 16`）へインストール。通常より大幅に時間がかかり（`BUILD SUCCESSFUL in 19m 35s`）、原因は未調査だが、ビルド自体は正常終了・成果物のインストールも成功した。`adb shell am start` で起動、プロセス生存・crash ログなしを確認済み。
+
+§10.17.2/§10.19.2 の受け入れ条件（拡大表示、フォルダ作成、設定画面との整合、浅い重なりでの従来動作、拡大表示の残留なし、ゴーストなし、検索/fast scroll/Work タブ/Home 由来 drag の回帰）の実機確認はユーザーへ依頼中、結果は未取得。次回セッション以降、確認結果が得られ次第この節に追記する。
+
+### 10.29 実機確認結果（2026-07-07）: フォルダ未作成の報告 + 2件の追加要望（コード未変更・次回対応）
+
+ユーザーから実機確認結果と2件の追加要望があった。**このセッションではコードを一切変更していない**（指示どおり、原因調査と要望内容を記録するのみ）。
+
+#### 報告1: フォルダ作成が発火しなかった（バグ、要調査）
+
+深い重なりで drop してもフォルダが作られなかった。コードを変更せず、既存実装（§10.27）を再点検し、原因になり得る箇所を2つ特定した。優先度の高い順に記載する。
+
+**仮説A（最有力）: フォルダ/並び替えゾーンの境界にヒステリシスがなく、release 直前の指の微小な揺れで `hoverFolderTargetApp` が null に戻り得る**
+
+- `classifyZone()`（`SearchContainerView.kt`）は距離に対する単純な閾値判定で、in/out に別の閾値を使うヒステリシスを持たない（§10.19.2 の設計時点で「Home 同様ヒステリシスは設けていない」と明記済み）。
+- `onDragOver()` は、解決したスロット+ゾーンの識別子（`lastSlotSignature`）が**前回と変わるたびに** `hoverFolderTargetApp = null` を無条件で実行してから、ゾーンが FOLDER の場合だけ改めてセットし直す構造になっている。
+- 人間の指は静止しているつもりでも微小に動き続けるため、ちょうど FOLDER/REORDER の境界付近で保持していると、`onDragOver` が呼ばれるたびに判定がFOLDER⇄REORDERの間で揺れ得る。
+- **指を離す直前の最後の `onDragOver` 呼び出しでたまたま REORDER 側に倒れていた場合、`hoverFolderTargetApp` はその時点で null に戻っている。** その直後の release で `DragController.drop()` が呼ぶ `onDragExit`（`dragComplete=true` のため状態はクリアされない）→ `acceptDrop()` は、この時点で既に null になっている `hoverFolderTargetApp` を読むため、フォルダ作成分岐に入らず通常の並び替えとして処理される（もしくは reorder 条件も満たさなければ何も起きない）。
+- 「深く重ねているつもりで長く保持してから離す」という操作は、境界付近での指の微動が起きやすい操作であり、この仮説と矛盾しない。
+
+**仮説B（副次的、あり得る）: `isSlotAnimating()` が RecyclerView 全体のアニメーション状態を見ているため、直前の並び替えプレビューのアニメーションが終わるまで新しいゾーン判定が一切スキップされる**
+
+- `isSlotAnimating()`（`SearchContainerView.kt`）は `recyclerView.itemAnimator?.isRunning == true` を見ており、これは RecyclerView 全体の対象で、ホバー中の特定 icon のアニメーション状態ではない。
+- 深く重ねる直前まで REORDER ゾーンにいた場合、`previewReorder()` が呼ばれて DiffUtil の move アニメーションが走っている可能性が高く、その最中に指を FOLDER ゾーンまで一気に動かすと、`onDragOver()` はアニメーション終了までその回の判定を丸ごとスキップする（`isSlotAnimating(...)` が true を返し即 return）。
+- その後、指がぴたりと止まった場合、次の `onDragOver` は（タッチが実際に動かない限り）呼ばれない可能性があり、アニメーションが終わったタイミングを逃すと FOLDER ゾーンへの遷移判定が一度も行われないまま release を迎える。
+
+いずれの仮説も、`onDragOver` が「識別子が変わったときだけ」状態を更新するという設計（§10.19.2 R2 由来）と、境界判定にヒステリシスや猶予時間がないことに起因する。次回対応の方向性（未実装、判断待ち）:
+
+- 境界にヒステリシス（FOLDER に入る閾値と抜ける閾値を分ける）を持たせる、または
+- release 直前の一定時間（例: 最後の signature 変化から数十〜100ms程度）だけ直前の FOLDER 状態を保持する猶予（debounce）を入れる、または
+- `isSlotAnimating()` の判定を RecyclerView 全体ではなく、実際にホバー中の特定 child だけを見るよう絞り込む。
+
+#### 要望2: 並び替え時に「隣と入れ替わったことが分かる」アニメーションを追加してほしい（Home の編集画面の同処理を参考に）
+
+Home の実際のアニメーション実装を確認した。
+
+- Home 編集モード（Workspace の SPRING_LOADED / Folder 内の並び替え）の隣接アイテムシフトは `CellLayout.animateChildToPosition()`（`CellLayout.java:1085`）が担う。中身は **`ValueAnimator`（`duration = REORDER_ANIMATION_DURATION = 150ms`、`CellLayout.java:206`）で、対象 View の並進オフセット（`MultiTranslateDelegate` の `INDEX_REORDER_PREVIEW_OFFSET`）を旧位置→新位置へ線形補間するだけ**の単純なスライドアニメーションであり、拡大・縮小・色変化などの装飾は一切ない。
+- Folder 内の実装（`FolderPagedView.realTimeReorder()`、`FolderPagedView.java:587`）はこれをさらに拡張し、影響を受ける複数アイテムを**段階的に遅延させながら連鎖的にスライドさせる**（`START_VIEW_REORDER_DELAY` による staggered delay）。1アイテムずつ「押し出される」ような見た目になる。
+- 現状の App Drawer 側実装は、`AdapterItem.isSameAs()`/`isContentSame()` の識別ベース diff 修正（§10.22）により、並び替え時に RecyclerView の DiffUtil が実際の MOVE を配信するようになっている（rebind ではない）ため、**RecyclerView 標準の `ItemAnimator`（`DefaultItemAnimator`）による移動アニメーション自体は既に走っているはず**であり、Home の仕組み（並進スライド）と概念的には同種のもの。それでも「分かりやすさ」が不足していると感じられる場合、次のような点が原因になり得る（未検証、次回調査対象）:
+  - `previewReorder()` は 650ms のスロットル付きで発火するが、ホバー中に何度も呼ばれるたびに DiffUtil 差分が再計算される。前回の move アニメーションが終わりきる前に次の move が入ると、RecyclerView 標準アニメーターが前のアニメーションを中断して新しい移動を割り込ませる可能性があり、Home の「1ステップずつ滑らかに送る」感触より「カクつく／飛ぶ」ように見える可能性がある。
+  - 最終確定（`onDrop()` の `reorderApp()`）時の挿入位置が、最後にプレビューしていた位置と厳密に一致しない場合（release 座標での再計算 `acceptDrop()` が、直前の `onDragOver` の評価と微妙に異なる可能性がある）、確定時に想定より大きな一括シフトが発生し、「隣とだけ入れ替わった」という見た目にならない可能性がある。
+  - Home の `FolderPagedView.realTimeReorder()` のような**段階的な delay 付き連鎖アニメーション**は、RecyclerView の `DefaultItemAnimator` の既定動作には存在しない（既定は全 move アイテムがほぼ同時にアニメーションする）。「分かりやすさ」を Home によりよく近づけるなら、RecyclerView 用に独自の `ItemAnimator`（またはカスタム move アニメーション）を用意し、150ms 程度の短い並進アニメーションや、複数アイテムが動く際の staggered delay を実装する必要がある可能性が高い。
+
+次回対応の方向性（未実装、判断待ち）: まず RecyclerView 標準アニメーターの挙動を実機ログ/レイアウトインスペクタ等で確認し、「本当にアニメーションが走っていない」のか「走っているが分かりにくい」のかを切り分けてから、必要なら Home に寄せたカスタム `ItemAnimator`（またはアニメーション時間・イージングの調整）を検討する。
+
+#### 要望3: フォルダ作成の重なり閾値をもう少し下げてほしい（より深い重なりでしか発火しないように）
+
+現状の式（`SearchContainerView.classifyZone()`、§10.24/§10.25 で調整済み）:
+
+```text
+reorderRadius = min(cellW/2 + borderSpace.x/2, cellH/2 + borderSpace.y/2)
+folderRadius  = (reorderRadius + iconVisibleRadius) / 2
+```
+
+`folderRadius` は `reorderRadius`（かなり広め、隣接セルとの隙間の半分まで食い込む）と `iconVisibleRadius`（アイコン画像自体の可視半径、狭い）の**単純平均**になっており、`reorderRadius`側に引っ張られて相対的に広めの値になっている。ユーザーの要望は、この `folderRadius` をもっと `iconVisibleRadius` 側に近い狭い値にして、「かなり深く重ねたときだけ」フォルダ判定に入るようにしたい、というもの。
+
+次回対応の方向性（未実装、判断待ち）: `folderRadius` の式を平均ではなく `iconVisibleRadius` によりウエイトを置いた式に変更する案（例: `folderRadius = iconVisibleRadius * K`、`K` は 1.0 前後の調整可能な係数、または `(reorderRadius * w1 + iconVisibleRadius * w2) / (w1 + w2)` で `w2 > w1` とする加重平均）が考えられる。具体的な係数は実機で試しながら調整する必要がある。なお、報告1の「フォルダが一度も発火しない」バグを先に解消しないと、閾値を下げても検証できない点に注意（バグ修正 → 閾値調整の順で対応する）。
+
+**次回セッションでの対応順（提案）**: 報告1（バグ調査・ヒステリシス/debounce導入）→ 要望3（閾値調整、報告1の修正と合わせて実機で追い込む）→ 要望2（アニメーションの分かりやすさ、優先度は前2つよりやや低い UX 磨き）。
+
+→ 詳細設計を §10.30 で確定した（仮説の一部は棄却・具体化されている）。
+
+### 10.30 §10.29 の3件の詳細設計（2026-07-07・コード未変更）
+
+§10.29 の記録を起点にコードを再調査し、設計を確定した。調査の結果、**§10.29 の仮説を修正する決定的な事実が2つ**見つかった。
+
+#### 10.30.1 追加調査で判明した事実（§10.29 の仮説の修正）
+
+**事実1: All Apps の RecyclerView は ItemAnimator が無効（null）だった**
+
+- `ActivityAllAppsContainerView.AdapterHolder.setup()` が `mRecyclerView.setItemAnimator(null)` を設定している（`allapps/ActivityAllAppsContainerView.java:1780-1781`、コメント: "No animations will occur when changes occur to the items in this RecyclerView."）。
+- 帰結1（要望2の根本原因）: §10.21 の「識別ベース diff により RecyclerView 標準の move アニメーションが走るはず」という想定は**誤り**。DiffUtil は正しく move/remove/insert を配信しているが、animator が null のため**並び替えプレビューは常にテレポート（瞬間移動）**していた。「入れ替わったことが分かるアニメーションがない」のは当然で、調整や stagger 以前に**アニメーションが1本も存在しない**。
+- 帰結2（§10.29 仮説Bの棄却）: `isSlotAnimating()` の `recyclerView.itemAnimator?.isRunning == true` は animator が null のため**常に false**。per-child の `translationX/Y` も animator がなければ常に 0。つまり仮説B（アニメーション中ガードによる判定スキップ）は**現状では成立し得ない**。ただし修正5で animator を有効化すると仮説Bが現実化するため、修正3（ガードの縮小）は animator 有効化と**必ずセット**で行う。
+
+**事実2: FOLDER 進入時の `cancelPendingReorder()` は Home の挙動の誤読であり、テレポートと合わさって「指の下の地形が瞬時に書き換わる」フィードバックループを作っていた（報告1の本命）**
+
+- §10.27 は FOLDER 進入時の `mainList.cancelPendingReorder()` を「Home の `setDragMode(DRAG_MODE_CREATE_FOLDER)` 時の `cleanupReorder(true)` と同じ意図」と説明したが、Home の `cleanupReorder` が巻き戻すのは **reorder alarm と hint（`revertTempState()`、小さな押しのけ予告アニメ）だけ**で、**alarm 発火済みの committed reorder（実際に動いた配置）は巻き戻さない**。一方 drawer 側の `pendingOrder` は「alarm 発火済みの committed reorder」に相当するので、これを巻き戻すのは Home より過剰。
+- 具体的な故障シーケンス（§10.29 仮説Aの具体化）:
+  1. アイコンに近づく過程で REORDER ゾーンを通過し、650ms 後に `previewReorder()` 発火 → グリッドが**テレポートで**並び替わる。
+  2. さらに深く重ねて FOLDER ゾーンに入る → `cancelPendingReorder()` がプレビューを**テレポートで**巻き戻す → **指の真下にあるアイコンの位置・対応が瞬時に変わる**。
+  3. 指のわずかな移動で次の `onDragOver` が走ると、巻き戻った地形で slot/zone を再解決するため signature が変わる → `onDragOver` は signature 変化のたびに `hoverFolderTargetApp = null` を**無条件実行**（`SearchContainerView.kt:354`）→ REORDER 判定なら 650ms 後にまたプレビュー → 2. へ戻る。
+  4. この振動の中で release すると、最後の状態が FOLDER である確率は低く、`acceptDrop()` は `hoverFolderTargetApp = null` を読む → フォルダは作られない。
+- つまり報告1は「指の微動」だけの問題ではなく、**FOLDER 進入自体が地形を書き換えて自分の状態を壊す**構造的なフィードバックループ。ヒステリシスだけ入れても FOLDER 進入時の巻き戻しがある限り再発する。
+- なお slot 解決の geometry（`child.left/top` ベース）は RecyclerView の move アニメーション（translation 方式）では**最終レイアウト位置**を返すため、animator を有効化しても解決座標は安定している。Home の `getWorkspaceCellVisualCenter()`（セル座標ベース、`CellLayout.java:931-945`）と同じ性質が既に成り立っている。
+
+#### 10.30.2 修正1（報告1・本命）: FOLDER 進入時にプレビューを巻き戻さない
+
+- `onDragOver()` の `HoverZone.FOLDER` 分岐から `mainList.cancelPendingReorder()` を**削除**する。reorder alarm のキャンセル（既存）だけを行う。これが Home の `cleanupReorder(true)`（alarm + hint のみ）の正しい対応物。
+- `pendingOrder` の巻き戻し/破棄タイミングは次の3つに限定: ①genuine exit（`onDragExit` の `dragComplete=false` 分岐、既存）②reorder 確定（`onDrop` → commit）③フォルダ作成確定（`createFolderAndAnimateDrop()` 内で `cancelPendingReorder()` を呼んで破棄。直後の `reloadGrid()` で再構築されるため視覚的な巻き戻しは実質見えない）。
+- 効果: FOLDER 進入時に指の下の地形が変わらなくなり、フィードバックループの起点が消える。
+
+#### 10.30.3 修正2（報告1）: FOLDER 状態の維持/解除をヒステリシス付きの明示的な遷移にする
+
+`onDragOver()` の「signature 変化 → 全状態クリア → ゾーン別に再設定」（`SearchContainerView.kt:349-376`）を、Home 型の「毎回評価・明示的な enter/exit」へ再構成する:
+
+```text
+毎 onDragOver（signature ゲートの外で無条件に評価）:
+  slot = resolveTargetSlot(...)（従来どおり）
+  FOLDER 保持中（hoverFolderTargetApp != null）:
+    exit 条件 = 「slot が hoverFolderTargetApp と別のアプリになった」
+             or 「同一アプリだが distance > folderExitRadius」
+    exit したら: scale 解除、hoverFolderTargetApp = null（REORDER 側の処理へ落ちる）
+    exit しなければ: 何もせず return（FOLDER 維持。reorder alarm は張らない
+                     = Home の mDragMode gating、Workspace.java:2840 相当）
+  FOLDER 非保持:
+    zone == FOLDER（enter 半径で判定）かつ target が自分でない
+      → enter: scale 適用、hoverFolderTargetApp = slot.app、reorder alarm cancel
+    zone == REORDER → 従来どおり signature（slot+zone）変化時のみ alarm 再アーム
+    zone == NONE → 何もしない
+```
+
+- `folderEnterRadius` < `folderExitRadius`（後述 §10.30.5 の式）のヒステリシスにより、境界上の微動では FOLDER 状態が落ちない。release 直前の最後の評価が REORDER 側に振れても、exit 半径を超えない限り `hoverFolderTargetApp` は保持される。§10.29 で挙げた debounce（時間猶予）は、修正1+この構造変更で不要になる見込みのため入れない（実機で不足が確認されたときの第2弾とする）。
+- `lastSlotSignature` は reorder alarm の再アーム判定専用に残す（FOLDER の enter/exit 判定には使わない）。
+
+#### 10.30.4 修正3: `isSlotAnimating()` の縮小（修正5とセットで必須）
+
+- whole-RV の `recyclerView.itemAnimator?.isRunning == true` チェックを**削除**する。現状は無意味（常に false）だが、修正5で animator を有効化した瞬間に「プレビューのたびに全判定が数百 ms 凍る」という §10.29 仮説Bが現実化してしまうため。
+- per-child の `translationX/Y != 0`（対象 child が move アニメーション飛行中）チェックのみ残し、適用箇所を **FOLDER の enter 判定だけ**に限定する（Home の `useTmpCoords` ガードが `willCreateUserFolder()` にだけ効いているのと同じ、`Workspace.java:2172-2176`）。slot 解決・REORDER 判定はブロックしない（`child.left/top` は最終レイアウト位置なので飛行中でも安定、§10.30.1 事実2の末尾参照）。
+
+#### 10.30.5 修正4（要望3）: フォルダ半径の式を「アイコン視覚半径基準」へ変更
+
+現行の `folderRadius = (reorderRadius + iconVisibleRadius) / 2`（`classifyZone()`、`SearchContainerView.kt:533-535`）を次に置き換える:
+
+```text
+folderEnterRadius = min(iconVisibleRadius * FOLDER_ENTER_FACTOR, reorderRadius * 0.8f)
+folderExitRadius  = folderEnterRadius * FOLDER_EXIT_HYSTERESIS
+FOLDER_ENTER_FACTOR    = 1.0f   // 調整用定数。iconVisibleRadius ≈ 0.46 * iconSizePx
+FOLDER_EXIT_HYSTERESIS = 1.3f   // 修正2のヒステリシス
+```
+
+- enter 半径が `iconVisibleRadius`（`ICON_VISIBLE_AREA_FACTOR(0.92) × iconSizePx / 2`）基準になるため、「DragView の視覚中心が相手のアイコン画像にほぼ載ったときだけ」FOLDER に入る。要望3の「かなり深い重なりでのみ発火」に一致。
+- `reorderRadius * 0.8f` の clamp で、アイコンが極端に小さい設定でも REORDER 帯が必ず残る。
+- 係数は実機で追い込む前提の定数とし、magic number をコード中に散らさない。
+
+#### 10.30.6 修正5（要望2）: drag 中だけ ItemAnimator を有効化する
+
+- **常時有効化はしない**: `setItemAnimator(null)`（`:1780-1781`）は通常運用（検索の打鍵ごとの結果更新、アプリ更新、work タブ切替）でのちらつき防止としてそこにあるため、これを常時変更すると App Drawer 全体の見た目に影響する。App Drawer 由来 drag の間だけ有効化し、終わったら戻す。
+- 実装: `SearchContainerView` は既に `DragController.DragListener`（§10.20 R1）なので、`onDragStart()` で対象 RecyclerView に animator を設定し、`onDragEnd()` で `setItemAnimator(null)` へ戻す（R1 の attach listener と同じライフサイクル）。
+- 第1弾（まずこれで実機確認）: `DefaultItemAnimator` に次を設定。
+  - `moveDuration = 150ms`（Home の `CellLayout.REORDER_ANIMATION_DURATION`、`CellLayout.java:206` と同値）
+  - `supportsChangeAnimations = false`（drag 中の change はほぼ発生しないが、crossfade による二重描画の芽を摘む）
+  - add/remove は既定のまま（ドラッグ中アプリの remove+insert は INVISIBLE な View 同士なので見えない）
+- 第2弾（第1弾で「分かりやすさ」が不足する場合のみ）: `FolderPagedView.realTimeReorder()` の staggered 演出（`FolderPagedView.java:72-74`: duration 230ms、`START_VIEW_REORDER_DELAY = 30ms`、`VIEW_REORDER_DELAY_FACTOR = 0.9`）を参考に、`DefaultItemAnimator` を継承したカスタム animator で move の開始 delay を「空きスロットからの index 距離」に比例させる。
+- **WYSIWYG 確定（§10.29 要望2の「確定時の一括シフト」対策）**: preview が発火済み（`pendingOrder != null`）の drop では、release 座標から `resolvedInsertIndex` を再計算して `reorderApp()` する現行経路をやめ、**最後にプレビューされていた `pendingOrder` をそのまま確定する** `commitPendingOrder()` を `LawnchairAlphabeticalAppsList` に追加して使う（Home が「drop は既に動いた配置を確定するだけ」なのと同じ）。preview 未発火の素早い drop だけ従来の `resolvedInsertIndex` 経路を使う。確定時に予期しない一括シフトが起きなくなり、着地アニメーションのターゲット位置も安定する。
+
+#### 10.30.7 実装順・受け入れ条件
+
+実装順（各ステップでビルド+実機確認）:
+
+1. **修正1+2+3**（報告1、1タスク）: FOLDER 進入でプレビューを巻き戻さない + enter/exit 状態機械 + ガード縮小。
+2. **修正4**（要望3、小差分）: 半径式の置換。1. と同時にビルドしてよいが、確認は分けて行う。
+3. **修正5**（要望2、1タスク）: drag 中 animator + WYSIWYG 確定。第2弾（stagger）は実機を見てから判断。
+
+受け入れ条件:
+
+- 報告1: アイコンに深く重ねて保持 → 拡大表示が出て**安定して維持され**、release で2アプリ入りフォルダが作られる。境界付近で指を静止していてもフォルダ状態が明滅しない。浅い重なりからの release は従来どおり並び替え。
+- 要望3: フォルダ判定に入るのは視覚中心が相手アイコン画像にほぼ載ったときだけ。REORDER 帯が全アイコンサイズ設定で残っている。
+- 要望2: プレビューで隣接アイコンが**滑って**避ける（テレポートしない）。drop 確定時に最後のプレビューと違う配置に飛ばない。drag 終了後、検索・アプリ更新などの通常更新の見た目が従来どおり（animator が null に戻っている）。
+- 全体: ゴースト DragView なし、Home 由来 drag・バー・検索・fast scroll・Work タブの回帰なし。
+
+### 10.31 修正1+2+3+4 実装記録（2026-07-07）
+
+§10.30 の設計どおり、報告1（フォルダ未発火）と要望3（閾値を下げる）をまとめて実装した。修正5（要望2: アニメーション + WYSIWYG 確定）は別タスクとして次に着手する。
+
+変更ファイル: `lawnchair/src/app/lawnchair/allapps/views/SearchContainerView.kt`（このみ）
+
+| 修正 | 内容 |
+|---|---|
+| 修正1 | `onDragOver()` の `HoverZone.FOLDER` 分岐から `mainList.cancelPendingReorder()` を削除。フォルダ作成が確定した場合のみ `createFolderAndAnimateDrop()` の冒頭で `cancelPendingReorder()` を呼び、既存プレビューを破棄する（直後の `reloadGrid()` で再構築されるため視覚的な巻き戻しは見えない） |
+| 修正2 | `onDragOver()` を「signature 変化で全状態クリア」から「FOLDER 保持状態を毎回無条件評価 → 保持中なら return、非保持なら signature ベースで zone 別処理」という構造に再構成。`hoverFolderTargetApp` が非 null の間は、同じアプリかつ `isWithinFolderExitRadius()`（enter 半径 × `FOLDER_EXIT_HYSTERESIS`(1.3)）以内であれば何もせず維持し、それ以外（別アプリ、または exit 半径を超えた）で初めて解除する |
+| 修正3 | `isSlotAnimating()` から `recyclerView.itemAnimator?.isRunning` チェックを削除（§10.30.1 事実1より常に false だったため無意味、かつ修正5で animator を有効化すると全判定が凍る危険があった）。残った per-child `translationX/Y` チェックは FOLDER **進入時のみ**のガードとして `onDragOver()` 内で個別に適用する形に変更（呼び出し箇所を `isSlotAnimating(recyclerView, slot)` → `isSlotAnimating(slot)` へ、REORDER 側の判定はブロックしない） |
+| 修正4 | `classifyZone()`/新設の `computeZoneRadii()` を、`folderRadius = (reorderRadius + iconVisibleRadius) / 2` から `folderEnterRadius = min(iconVisibleRadius * FOLDER_ENTER_FACTOR(1.0), reorderRadius * FOLDER_ENTER_CLAMP_FACTOR(0.8))` へ置換。`folderExitRadius = folderEnterRadius * FOLDER_EXIT_HYSTERESIS(1.3)` を追加し、`isWithinFolderExitRadius()` として公開 |
+
+実装方針の補足:
+
+- `ZoneRadii`（`folderEnterRadius`/`folderExitRadius`/`reorderRadius` を持つ private class）を新設し、`classifyZone()`（enter 半径を使う）と `isWithinFolderExitRadius()`（exit 半径を使う）の両方が `computeZoneRadii()` を共有する形に整理した。
+- `onDragOver()` の制御フロー: ①`resolveTargetSlot` で slot 解決 → ②**FOLDER 保持中なら毎回無条件で exit 判定**（signature を経由しない）→ ③保持継続なら即 return（reorder alarm 等の状態は一切触らない）→ ④保持解除 or 非保持なら self 判定 → ⑤FOLDER **進入**のみ `isSlotAnimating()` でガード → ⑥signature（slot+zone）が変化していれば zone 別処理（FOLDER: scale 適用+`hoverFolderTargetApp`セット、REORDER: alarm 再アーム、NONE: 何もしない）。
+- これにより、FOLDER に一度入ってから境界付近で指が微動しても、地形（pendingOrder）が書き換わることも `hoverFolderTargetApp` が無条件でクリアされることもなくなり、§10.30.1 事実2で特定したフィードバックループの起点が構造的になくなった。
+
+検証:
+
+```powershell
+$env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'
+$env:Path="$env:JAVA_HOME\bin;$env:Path"
+.\gradlew.bat compileLawnWithQuickstepGithubDebugJavaWithJavac --console=plain
+```
+
+結果: `BUILD SUCCESSFUL in 1m 9s`。新規/変更ファイル起因のエラーなし。
+
+未実施: 実機確認（§10.30.7 の受け入れ条件のうち報告1・要望3: 深く重ねて保持すると拡大表示が明滅せず安定して維持されるか、release で確実にフォルダが作られるか、フォルダ判定に入るのがアイコン画像にほぼ載ったときだけになっているか、浅い重なりは従来どおり並び替えになるか、ゴースト・回帰なし）。要望2（修正5）はこの節では未着手。
+
+### 10.32 実機確認結果（2026-07-08）+ 作業ツリー巻き戻し事故と復旧・再構築計画
+
+#### 10.32.1 §10.31 ビルドの実機確認結果（2026-07-08）
+
+§10.31（修正1+2+3+4）を適用したデバイスビルド（`297de14` ベース + 未コミット変更）で確認した結果:
+
+| 項目 | 結果 | 解釈 |
+|---|---|---|
+| 報告1（明滅） | **明滅は解消** | 修正1+2（フィードバックループ除去・ヒステリシス）が有効 |
+| 要望3（閾値） | **OK** | 修正4（`iconVisibleRadius` 基準の enter 半径）が有効 |
+| 要望2（アニメ） | **テレポートのまま** | 修正5 は §10.31 に未着手なので当然 |
+| 報告1（作成） | **その場で作られず、再起動後に作られる** | 新しい真因。§10.30 では未想定 |
+
+→ 修正1〜4 の方向性は実機で正しさが裏付けられた。残るのは要望2（修正5）と、**新たに判明した「フォルダが再起動後にしか作られない」= drawer 再描画の問題**（§10.32.3）。
+
+#### 10.32.2 作業ツリー巻き戻し事故と復旧（2026-07-08）
+
+**事象**: 作業ディレクトリが `namamiso/Morrowa.git` から**クローンし直された直後の状態**になっていた（`git reflog` はクローン1件のみ）。ローカル `16-dev` は `origin/16-dev` より **14コミット手前の `fabeccfb84`** を指しており、App Drawer 実装コードが一切入っていない状態だった。dangling commit は1件あったが無関係（別作者の古い PagedView 修正）。
+
+**判明した損失範囲**: 前セッション開始時点の HEAD は `297de14`（Phase D 並び替え完了）で、その上に**未コミットの変更**として以下が乗っていた。これらは push されておらず、巻き戻しで失われた（doc の設計記録のみ残存）:
+
+- §10.24 / §10.25: reorder 閾値・感度修正（`SearchContainerView`）
+- **§10.26 R3: フォルダ作成データ層**（`FolderViewModel.createFolderWithApps` / `FolderService.createFolderWithItems` / `FolderDao.insertFolderReturningId` / `LawnchairAlphabeticalAppsList.createFolder`）
+- **§10.27 R4: フォルダモード接続**（`hoverFolderTargetApp` / `createFolderAndAnimateDrop` / `applyFolderHoverScale` / `onDrop` フォルダ分岐 / `resolvedCreateFolder` の使用側）
+- §10.30 / §10.31: 修正1〜4
+
+**origin/16-dev @ 297de14 に生きているもの（復元済み）**:
+
+- Phase D 並び替え + 永続化（`DrawerAppOrderEntity` / `DrawerAppOrderDao` / `LawnchairAlphabeticalAppsList` の `drawerAppOrder` 観測・`reorderApp`・`previewReorder`・`beginPendingReorder`・`cancelPendingReorder`・`commit` 前提の `getOrderedApps`）
+- R1+R2: 不可視ソース + ライブプレビュー + ゾーン判定（`SearchContainerView` の `HoverZone` / `classifyZone` / `reorderAlarm`）。ただし `HoverZone.FOLDER` 分岐は「R4 not yet implemented」のスタブ（`SearchContainerView.kt:270` 付近）で、フォルダは作らない。
+
+**復旧手順（実施済み）**:
+
+1. untracked の設計 doc（§10.30/§10.31 を含む 194KB）をスクラッチパッドへ退避。
+2. `git reset --hard origin/16-dev`（ローカルは origin に対し「14 behind・独自コミットなし・追跡ファイルの変更なし」だったため、履歴の損失なし）。
+3. reset が origin committed 版（158KB・§10.25 まで）で doc を上書きしたため、退避版（194KB・§10.31 まで、origin 版の完全上位互換であることを `comm` で確認済み）で復元。
+
+**今後の防止策（合意事項）**: フォルダ作業は R3/R4 を分割して**都度コミット**し、実機確認前に必ず push する。未コミットのまま実機ビルド・検証を繰り返さない。
+
+#### 10.32.3 新真因: フォルダが再起動後にしか作られない（drawer 再描画の race）
+
+**再描画経路（現行コードで確認）**:
+
+- `LawnchairAlphabeticalAppsList.observeFolders()`（`:224-229`）が `FolderViewModel.foldersLiveData` を観測し、`folderList` 更新 + `updateAdapterItems()` を呼ぶ**ライブ再構築**がある。
+- 手動フォルダモードの構築 `addAppsWithSections()`（`:274-292`）は、各フォルダについて `folder.getContents()` を `appsStore.getApp(componentKey)` で解決し、**`folderApps.size > 1` の時だけ `AdapterItem.asFolder(...)` を追加**する（`:279`）。
+
+**真因**: フォルダ作成直後に `foldersLiveData` が「**contents がまだ 2 未満のフォルダ**」を emit すると、`:279` の `size > 1` ガードで**除外され表示されない**。DB には書けているので、再起動で contents 付きに再読込されると初めて表示される。失われた R3 の `createFolderWithApps` が「フォルダ本体と items を atomic に書いてから emit / reloadGrid する」順序を守っていなかったための race と判断する（デバイス挙動と `:279` ガードで説明が付く）。
+
+**修正設計（R3 再実装時に作り込む）**: 既存で drawer 更新の実績がある `FolderViewModel.updateFolderItems()`（`:60-69`、`repository.updateFolderWithItems(...)` → `reloadGrid()` の順）を手本にする。
+
+- `FolderService.createFolderWithItems(title, apps)` を**単一 suspend で atomic に**書く: ①`FolderInfoEntity` を insert して id 取得（`insertFolderReturningId`）→ ②その id で全 `FolderItemEntity`（rank 付き）を insert → ③（`prefs.folderApps` が true のとき）メイン一覧から隠す状態の更新。①②が完了してから関数を return する。
+- `FolderViewModel.createFolderWithApps(title, apps)` は 1 つの `viewModelScope.launch { ... }` 内で `repository.createFolderWithItems(...)` を **await してから** `reloadHelper.reloadGrid()` を呼ぶ（`createFolder`/`updateFolderItems` と同じ順序）。
+- これにより `getFoldersFlow()` の emit は「contents が 2 揃ったフォルダ」になり、`observeFolders → updateAdapterItems → addAppsWithSections` の `:279` ガードを通過して**その場で表示**される。`reloadGrid()` はモデル全体の再読込としての保険（既存パターン踏襲）。
+- 受け入れ条件: フォルダ作成 release の**直後**（再起動なし）に、2 アプリ入りフォルダが drawer に出現する。フォルダに入れた 2 アプリがメイン一覧から消える（`pref_hideFolderApps` 既定 true 準拠）。
+
+#### 10.32.4 再構築タスクの分解と順序
+
+origin/16-dev @ 297de14（Phase D 並び替えは無傷）を土台に、**設計は §10.24〜§10.31 + §10.32.3 に全て残っている**ので、以下は「新規設計」ではなく「記録済み設計の再実装 + 新 reload 修正 + 修正5」である。都度コミット・push する。
+
+1. **タスクA（感度）**: §10.24 reorder 閾値修正 + §10.25 距離基準点修正（`SearchContainerView` の `classifyZone`/距離計算）。小差分。→ commit。
+2. **タスクB（R3 フォルダ層 + reload 修正）**: §10.26 の R3 データ層を再実装し、その際 §10.32.3 の atomic + reloadGrid 順序を**必ず**守る。`FolderDao.insertFolderReturningId` / `FolderService.createFolderWithItems` / `FolderViewModel.createFolderWithApps` / `LawnchairAlphabeticalAppsList.createFolder`。UI 未接続でも、単体でフォルダが作られ drawer に出ることをテスト用導線で確認できると理想。→ commit。
+3. **タスクC（R4 接続 + 修正1〜4）**: §10.27 R4（`hoverFolderTargetApp`・`createFolderAndAnimateDrop`・`applyFolderHoverScale`・`onDrop` フォルダ分岐）を、**最初から §10.30/§10.31 の修正1〜4 を織り込んだ形**で実装する（スタブ経由の巻き戻しを再現しない）。`onDragOver` は §10.30.3 の enter/exit 状態機械、半径は §10.30.5 の式。→ commit → 実機確認（報告1・要望3）。
+4. **タスクD（修正5）**: §10.30.6 の drag 中 animator + WYSIWYG 確定（`commitPendingOrder`）。→ commit → 実機確認（要望2）。
+
+各タスクの受け入れ条件は §10.30.7 + §10.32.3 を参照。タスクB の reload 修正が入るまでは、報告1の「その場で作られない」は解消しない点に注意（タスクC の修正1〜4 だけでは判定は直っても表示が追いつかない）。
+
+### 10.33 再構築の実装記録（2026-07-08）
+
+§10.32.4 のタスク分解に沿って、失われたフォルダ機能一式を origin/16-dev @ 297de14 の上に再実装した。
+
+**タスクA は不要だった**: 復元後に `SearchContainerView` を確認したところ、§10.24（`reorderRadius = min(cellW/2 + borderSpace.x/2, cellH/2 + borderSpace.y/2)`）と §10.25（`iconVisualCenter()`）は **297de14 に既にコミット済み**で失われていなかった。感度修正は再実装不要。
+
+変更ファイル:
+
+| ファイル | 内容（タスク） |
+|---|---|
+| `data/folder/service/FolderDao.kt` | （B）`insertFolderReturningId(folder): Long` と `createFolderWithItems(folder, items: (Int) -> List<FolderItemEntity>): Int`（`@Transaction`。`folder.copy(id = 0)` で新規 insert → 生成 id で items 生成 → insert → id を返す）を追加 |
+| `data/folder/service/FolderService.kt` | （B）`createFolderWithItems(title, appInfos): Int`（`FolderInfoEntity(title=title)` + `appInfos` を rank=index で item 化して DAO 呼び出し） |
+| `data/folder/model/FolderViewModel.kt` | （B）`createFolderWithApps(title, appInfos)`（`createFolder`/`updateFolderItems` と同じ「repository 書き込みを await → `reloadHelper.reloadGrid()`」パターン。§10.32.3 の reload 修正の核心） |
+| `allapps/LawnchairAlphabeticalAppsList.kt` | （C）`createFolder(title, apps)` を `viewModel.createFolderWithApps` へ委譲。（D）`hasPendingReorder(): Boolean` と `commitPendingOrder()`（pendingOrder を再計算せずそのまま永続化＝WYSIWYG）を追加 |
+| `allapps/views/SearchContainerView.kt` | （C+D）大幅書き換え。下記 |
+
+`SearchContainerView` の再構成（§10.30 の設計を最初から織り込み、スタブ経由の巻き戻しを再現しない形で実装）:
+
+- **状態**: `resolvedCreateFolder`（旧）を廃し `hoverFolderTargetApp: AppInfo?`（フォルダ確定状態、`acceptDrop`/`onDrop` が読む）+ `scaledFolderTargetView: View?` を導入。`lastTargetSlotKey`（スロットのみ）→ `lastSlotSignature`（`"$slotKey:$zone"`、reorder alarm 再アーム専用）へ。
+- **onDragOver（修正1+2+3）**: ①`beginPendingReorder` → ②slot 解決 → ③**FOLDER 保持中なら signature ゲートの外で毎フレーム評価**（同一アプリ かつ `isWithinFolderExitRadius` 内なら即 return で維持、`cancelPendingReorder` は呼ばない＝修正1）→ ④exit 時は `clearFolderHover()` + `lastSlotSignature=null` で reorder 側へ落とす → ⑤self スロットは何もしない → ⑥zone 別: FOLDER は `isSlotAnimating(slot)`（per-child のみ、修正3）でガードしてから scale 適用 + `hoverFolderTargetApp` セット、REORDER は signature 変化時のみ alarm 再アーム、NONE は signature 更新のみ。
+- **半径（修正4）**: `computeZoneRadii()` を新設し `classifyZone`（enter）と `isWithinFolderExitRadius`（exit）が共有。`folderEnterRadius = min(iconVisibleRadius * 1.0, reorderRadius * 0.8)`、`folderExitRadius = folderEnterRadius * 1.3`。
+- **isSlotAnimating（修正3）**: whole-RV の `itemAnimator?.isRunning` を削除、per-child `translationX/Y` のみ。FOLDER enter 判定だけに適用。
+- **drag 中 animator（修正5）**: `onDragStart` で対象 RecyclerView に `DefaultItemAnimator(moveDuration=150, supportsChangeAnimations=false)` を設定、`onDragEnd` で `itemAnimator=null` に戻す（通常運用の無アニメを維持）。
+- **WYSIWYG 確定（修正5）**: `onDrop` の reorder 分岐で、`hasPendingReorder()` が true なら `commitPendingOrder()`（プレビューをそのまま確定）、false（プレビュー未発火の素早い drop）なら従来の `reorderApp(insertIndex)`。
+- **フォルダ作成 drop（R4）**: `hoverFolderTargetApp` が非 null なら `createFolderAndAnimateDrop()` → `cancelPendingReorder()`（修正1、reloadGrid で再構築されるため巻き戻しは不可視）→ `clearFolderHover()` → `mainList.createFolder(my_folder_label, [targetApp, movedApp])` → `animateDragViewOnto()`。着地アニメは `animateDropLanding`/フォルダ作成で `animateDragViewOnto(dragView, targetView)` を共有（§10.27）。target 解決は index ではなく**ライブ children 走査 `findChildViewForApp()`**（フォルダ行が adapter position をずらしても正しい）。
+- **reload 修正（§10.32.3）**: フォルダ作成は R3 の atomic write + `reloadGrid` 経路を通るため、`getFoldersFlow` が contents 2 揃いで emit → `observeFolders → updateAdapterItems → addAppsWithSections`（`:279` の `size > 1` ガード通過）で**その場で表示**される。
+
+検証: `compileLawnWithQuickstepGithubDebugJavaWithJavac` → `BUILD SUCCESSFUL in 4m 19s`（Room の DAO 生成含め、新規/変更起因のエラーなし。警告は無関係な quickstep の deprecation のみ）。`installLawnWithQuickstepGithubDebug` で実機 `SC-52C - 16` へインストール。
+
+未実施: 実機確認（§10.30.7 + §10.32.3 の受け入れ条件）。特に **報告1（フォルダが release 直後に作られる・再起動不要）**、要望2（プレビューが滑る・WYSIWYG）、要望3（深い重なりのみフォルダ）。都度コミットは未実施（実機確認 OK 後にまとめて行う想定）。
+
+### 10.34 §10.33 ビルドの実機確認結果と残 2 件の詳細調査（2026-07-08・別エージェント引き継ぎ用）
+
+#### 10.34.1 実機確認結果
+
+| 項目 | 結果 |
+|---|---|
+| 要望3（深い重なりのみフォルダ判定） | **OK** |
+| 回帰（フォルダ境界での明滅） | **OK**（明滅なし） |
+| 報告1（フォルダが release 直後に作られる） | **未解決**。まだその場で作られない |
+| 要望2（並び替えアニメ） | 左右で挙動が違う。**右→左の動きが正常値**、左→右が異なる（おかしい） |
+
+以下、残 2 件を別エージェントが調査・修正できるよう、コードを読んで特定した内容を残す。**要望2は根本原因を確定、報告1は計測が要るため仮説と計測ポイントを提示する。**
+
+#### 10.34.2 要望2（並び替えアニメの左右非対称）: 根本原因【確定】
+
+**原因**: `AlphabeticalAppsList.updateAdapterItems()` の差分適用が `DiffUtil.calculateDiff(new MyDiffCallback(oldItems, mAdapterItems), false)`（`src/com/android/launcher3/allapps/AlphabeticalAppsList.java:376`）で、**第2引数 `detectMoves = false`**。
+
+- `detectMoves = false` だと DiffUtil は移動（move）を検出せず、位置が変わったアイテムを **remove（旧位置）＋ insert（新位置）** として報告する。`DefaultItemAnimator` は move を slide（並進）で、remove/insert を fade（＋わずかな並進）でアニメーションするため、並び替えが「滑る」ようには見えない。
+- さらに remove/insert 対象は DiffUtil の LCS（最長共通部分列）で決まり、**LCS は移動方向で非対称**。moved app を前方（左→右）へ動かす場合と後方（右→左）へ動かす場合で「keep されるアイテム」と「remove+insert されるアイテム」の集合が変わるため、**方向によって見た目のアニメーションが変わる**。ユーザーの「右→左は正常、左→右は違う」はこの非対称性で説明できる。
+- **重要な訂正**: `BaseAllAppsAdapter.java:158-159`（§10.22 で追記した `isSameAs` のコメント）の「detectMoves=false でも DiffUtil が reordering を real move として報告できる」という記述は**前提が誤り**。identity ベースの `isSameAs`（`BaseAllAppsAdapter.java:162-175`）は「無関係な位置が別アプリへ rebind されるのを防ぐ」効果はあるが、moved item 自体は detectMoves=false である限り remove+insert のままで、move にはならない。§10.22 は二重描画（rebind flicker）は解消したが、アニメーションが slide にならない/非対称である問題は残っていた（今回顕在化）。
+
+**修正の方向（別エージェント向け）**:
+
+- 第一候補: `calculateDiff(cb, true)` に変更して move を検出させる。`DefaultItemAnimator` が move を対称な slide でアニメーションするようになり、左右差も解消する。
+- ただし `updateAdapterItems()` は launcher3 共有コードで、**検索結果更新・アプリ更新・Work タブ等すべての All Apps 更新**に効く。detectMoves=true は追加コスト（おおむね O(N²) の move 検出パス）があるが、drawer のアイテム数程度なら実用上問題は小さい見込み。影響を最小化するなら「**ドラッグ中だけ detectMoves=true**」にする（例: `LawnchairAlphabeticalAppsList` に drag 中フラグを持たせ、`updateAdapterItems` をオーバーライドするか、`calculateDiff` の第2引数をフラグで切り替える薄いフック）。§10.30.6 で drag 中だけ `DefaultItemAnimator` を有効化しているのと同じスコープに揃えるのが自然。
+- 併せて、§10.30.6 の staggered 演出（第2弾）はこの detectMoves 修正で slide が対称に出るのを確認してから判断する。
+
+#### 10.34.3 報告1（フォルダが release 直後に表示されない）: 調査と仮説
+
+**まず切り分け（別エージェントが最初に確定すべきこと）**: 今回のビルドで「フォルダは**アプリ再起動すると**現れるのか、それとも**一切現れない**のか」。
+- 再起動で現れる → DB 書き込みは成功。壊れているのは**その場の表示（再描画）経路**。→ 仮説 D1〜D3。
+- 一切現れない → `createFolderWithApps` まで到達していない、または DB 書き込み自体が失敗。→ 仮説 D4。
+
+**§10.33 の私の reload 修正（atomic write＋reloadGrid）が効かなかった意味**: 「書き込み順序／atomicity」が真因ではなかった。表示経路側に別の原因がある。以下、優先度順。
+
+**仮説 D1（最有力）: `foldersLiveData` observer は発火しているが、`addAppsWithSections` で新フォルダの `folderApps.size > 1` が成立していない**
+
+- 再描画は `LawnchairAlphabeticalAppsList.observeFolders()`（`:224-229`）→ `updateAdapterItems()` → `addAppsWithSections()`（`:274-292`）の経路で起きる。手動フォルダモードでは各フォルダの中身を `appsStore.getApp(app.componentKey)`（`:277`）で解決し、`folderApps.size > 1`（`:279`）**のときだけ**フォルダ行を追加する。
+- 新規作成直後、`folder.getContents()` が返す 2 アプリのうち片方でも `appsStore.getApp(componentKey)` が null を返すと size < 2 となり**フォルダが描画されない**。再起動すると（別経路で）解決でき表示される、という筋。
+- 計測: `addAppsWithSections` のフォルダ分岐に、各 folder について `folder.id` / `folder.getContents().size` / `appsStore.getApp` の解決成否（componentKey 文字列付き）をログ出力。ドラッグでフォルダ作成 → logcat 確認。
+- 疑うべき詳細: `FolderService.toItemInfo(componentKey)`（`service/FolderService.kt:94-104`）は `launcherApps.getActivityList` を毎回スキャンして `converters.fromComponentKey(it.componentKey) == componentKey` で突き合わせる。ここで `FolderItemEntity.componentKey`（`AppInfo.toEntity` が保存した文字列, `data/Converters.kt`）と、`appsStore.getApp` が期待する `ComponentKey` の**文字列表現の不一致**（user シリアライズ形式など）があると解決に失敗し得る。作成直後と再起動後で差が出るかも要確認。
+
+**仮説 D2: observer が発火していない（Room flow が in-place で再 emit しない、または LiveData 購読が非アクティブ）**
+
+- `FolderService.getFoldersFlow()`（`:37-43`）は `folderDao.getAllFolders()`（Room Flow）を `.map { getFolderInfo(id, true) }` したもの。`FolderViewModel.folders`（`:27-37`）は `.distinctUntilChanged().stateIn(WhileSubscribed(5000))`、`foldersLiveData = folders.asLiveData(viewModelScope)`。
+- `createFolderWithItems` は Folders テーブルに insert するので Room の InvalidationTracker が `getAllFolders()` を再 emit するはずだが、**別コネクション/WAL チェックポイント**（DAO に `checkpoint` RawQuery がある = `service/FolderDao.kt:61`）が絡むと in-place で観測されない可能性がある。
+- 計測: `observeFolders` のラムダ（`:225`）冒頭に「発火した」「folders.size」ログを入れる。作成直後に発火するか、発火時の size は増えているかを確認。発火しないなら Room flow/購読側、発火するが表示されないなら D1。
+- 補足: `FolderViewModel` は `ViewModelProvider` 経由でなく手動生成（`LawnchairAlphabeticalAppsList.kt:50`）なので `onCleared()` が呼ばれず `viewModelScope` は生存し続ける。購読自体は活きているはず。ただし drag を処理する `mainList` インスタンスの `viewModel` と、実際に画面に出ているリストの `viewModel` が**同一インスタンスか**は要確認（別インスタンスなら別 observer で、作成した側の再描画が画面へ反映されない）。
+
+**仮説 D3: `reloadGrid()`（`idp.onPreferencesChanged`）が All Apps を再構築せず、observer 経路だけが頼りだが、その observer 経路が drop 直後のタイミングで抑制される**
+
+- 既存フォルダ**編集**（`updateFolderItems`）は「既に size>1 で描画済みのフォルダ」の中身更新なので D1 の罠にかからず、in-place 更新が効いている（＝ユーザー確認済み）。一方**新規作成**は「今まで単独だった 2 アプリを初めてフォルダ化」するため D1/D2 の初回描画に固有の問題が出やすい。この非対称が「編集は反映されるが作成は反映されない」症状と整合。
+- 計測: 作成直後に手動で `updateAdapterItems()` 相当を強制（例: タブ切替やスクロール）して即表示されるか。されるなら「observer 発火のトリガー欠落」、されないなら D1（データ解決）寄り。
+
+**仮説 D4（「一切現れない」場合）: `onDrop` のフォルダ分岐に入っていない or `createFolder` 未到達**
+
+- `SearchContainerView.onDrop`（今回実装）はフォルダ分岐条件が `hoverFolderTargetApp != null && … && folderApp.key != movedApp.key`。要望3で「深い重なりでフォルダ判定に入る」ことは実機 OK なので `hoverFolderTargetApp` は drop 前に立っているはずだが、`onDragExit(dragComplete=true)` → `acceptDrop` → `onDrop` の間で消えていないか要確認（今回 `onDragExit` は dragComplete 時にクリアしない実装）。
+- 計測: `onDrop` 冒頭で `hoverFolderTargetApp` の有無、`createFolderAndAnimateDrop` 到達、`FolderViewModel.createFolderWithApps` 到達、`FolderService.createFolderWithItems` の戻り id、をログ。
+
+**別エージェントへの推奨手順**:
+1. まず「再起動で出るか／一切出ないか」を確定（D1〜D3 か D4 か）。
+2. `createFolderWithApps` 到達と戻り id、`observeFolders` 発火と size、`addAppsWithSections` の folder ごとの `getContents().size` と `appsStore.getApp` 解決成否をログで一気に可視化。
+3. 切れているリンクを特定してから修正。有力は D1（componentKey 解決 or size>1 ガード）。
+4. 併せて要望2（§10.34.2）の detectMoves 修正（ドラッグ中スコープ推奨）も入れる。
+
+**現状のコード位置（参照用）**: `data/folder/service/FolderDao.kt`（`insertFolderReturningId`/`createFolderWithItems`）、`data/folder/service/FolderService.kt`（`createFolderWithItems`/`toItemInfo`/`getFoldersFlow`）、`data/folder/model/FolderViewModel.kt`（`createFolderWithApps`）、`allapps/LawnchairAlphabeticalAppsList.kt`（`createFolder`/`observeFolders`/`addAppsWithSections`）、`allapps/views/SearchContainerView.kt`（`onDrop`/`createFolderAndAnimateDrop`）、`src/com/android/launcher3/allapps/AlphabeticalAppsList.java:376`（detectMoves）。いずれも §10.33 実装後の状態（未コミット・実機 `SC-52C - 16` にインストール済み）。
+
+### 10.35 原因究明（実機 DB・logcat による確定）と修正実装計画（2026-07-08・コード未変更）
+
+§10.34 の引き継ぎに基づき、**接続中の実機からコード変更なしで証拠を取得**し、仮説を大幅に絞り込んだ。
+
+#### 10.35.1 取得した確定事実
+
+計測手法: `adb exec-out run-as app.lawnchair.debug cat databases/preferences`（+ `-wal`/`-shm`）で Room DB を取得し、platform-tools 同梱の `sqlite3` で照会。あわせて `adb logcat -d` の履歴と `ps` のプロセス起動時刻を解析。
+
+**事実1: DB 書き込み経路は完全に動作している → 仮説D4 は棄却**
+
+`Folders` テーブルに id=5（2026-07-08 11:49:52）と id=6（11:49:54）が存在し、それぞれ `FolderItems` に 2 行（rank 0/1、Samsung カレンダー + Jumptoon、`pkg/cls#0` 形式）が紐付いている。**同一内容のフォルダが2秒差で2つ** = 「1回目の drop で表示されず、もう一度 drop した」というユーザー操作の痕跡とも整合する。`onDrop` → `createFolderWithApps` → atomic write は end-to-end で成功している。
+
+**事実2: クラッシュは起きていない。再起動はユーザーの手動操作**
+
+logcat 履歴より: 旧プロセス pid 32426 は 11:49:53 に大量 read（reloadGrid の model reload とみられる）→ 11:49:58 ユーザーが Recents へ遷移 → 11:49:59 `ActivityManager: Killing 32426:app.lawnchair.debug (adj 905): remove task`（**Recents からのタスク削除 = 手動再起動**）→ 11:50:04 新プロセス pid 716 起動。`FATAL`/`AndroidRuntime` なし。
+
+**事実3: 初回ロード経路（購読開始時の初回 emission → 表示）は正常**
+
+現プロセス（716）はフォルダ 3〜6 がすべて DB に存在する状態で起動しており、ユーザー報告（再起動後は表示される）と合わせると、`observeFolders → updateAdapterItems → addAppsWithSections` の**表示経路そのものは初回 emission に対しては機能する**。
+
+**事実4: componentKey の文字列形式不一致（D1 の一変種）は棄却**
+
+書き込み側 `AppInfo.toEntity`（`Converters.fromComponentKey` = `ComponentKey.toString()`、`data/Converters.kt:17-22`）と照合側 `toItemInfo` の比較（`FolderService.kt:116`）は**同一関数・同一形式**で、DB 実物も `pkg/cls#0` 形式だった。形式起因の恒常的な解決失敗はない（実際、再起動後は同じデータで表示できている）。
+
+**事実5: `reloadGrid()` はプロセスも activity も殺さず、全再構築を1回は走らせている**
+
+`reloadGrid()` = `idp.onPreferencesChanged()` → `MAIN_EXECUTOR` 上で `onConfigChanged()`（`InvariantDeviceProfile.java:593-596`）→ IDP 再init + listener 通知（`LawnchairAlphabeticalAppsList.onIdpChanged` → `onAppsUpdated()`、`.kt:336-338`）+ model reload。事実2のタイムラインとも整合。**作成後に少なくとも1回は全再構築が走っているのに表示されない**ということは、**そのセッション中、`folderList` に「描画可能な（contents≥2 の）新フォルダ」が一度も入っていない**ことを意味する。
+
+**結論**: 残る候補は2つだけ。
+- **D2（本命寄り）**: ライブ emission（`getAllFolders()` flow → `foldersLiveData` → `observeFolders`）が作成直後に届いていない。
+- **D1'**: ライブ emission は届いているが、emit 時の `toItemInfo` 解決がそのタイミングに限って失敗し contents < 2 で `:318` ガードに弾かれている。
+
+どちらが真因かは実機のランタイムログでしか確定できない（今回は端末が Doze/ロック中のため再現操作は次回）。ただし**以下の修正F-Aはどちらが真因でも症状を解消する**。
+
+#### 10.35.2 修正実装計画
+
+**修正F-A（即効・真因非依存）: フォルダ作成時の楽観的ローカル反映**
+
+- `LawnchairAlphabeticalAppsList.createFolder(title, apps)` を次のように変更: `viewModel.createFolderWithApps(...)`（既存、裏で DB 書き込み + reloadGrid）に加えて、**手元にある 2 つの `AppInfo` から `FolderInfo` を直接合成して `folderList` に add し、その場で `updateAdapterItems()` を呼ぶ**。
+- drop した瞬間に drawer にフォルダが出る。Room flow の emission・`toItemInfo` の解決・reloadGrid のどれにも依存しない。Home の `createUserFolderIfNecessary()` が drop と同時に `FolderIcon` を即時生成し、永続化を裏で行うのと同じ「UI 先行」パターン。
+- 後続の canonical emission（`observeFolders`）が `folderList` を丸ごと置き換えるため、楽観エントリは自然に canonical 版へ差し替わる（`AdapterItem.isSameAs` はフォルダをタイトルで識別するため DiffUtil 上も安定）。emission が来ない/解決に失敗する（真因未修正）場合でも、少なくとも当該セッション中は楽観エントリが表示され続ける。
+- 楽観 `FolderInfo` の `id` は未確定（0）でよい: `getSortedFolders()` は `drawerListOrder` に無い id を `Int.MAX_VALUE`（フォルダ節の末尾）に置くだけで安全（`.kt:270-277`）。
+- 受け入れ条件: drop 直後（再起動なし・数百 ms 以内）に 2 アプリ入りフォルダがフォルダ節末尾に表示され、メイン一覧から 2 アプリが消える（`pref_hideFolderApps` 既定 true）。
+
+**修正F-B（真因特定・恒久デバッグログ）**: タグ `MorrowaFolder` で3点を `Log.d`/`Log.w` に。
+
+1. `observeFolders` 冒頭: 発火の有無、`folders.size`、各 folder の `(id, title, contents.size)`。
+2. `FolderService.mapToFolderInfo`: `toItemInfo` が null を返した `componentKey` を `Log.w`（D1' の直接検出）。
+3. `addAppsWithSections` のフォルダ分岐: folder ごとの `appsStore.getApp` 解決数と表示可否。
+
+次回実機セッションで「ドラッグ作成 → `adb logcat -s MorrowaFolder`」により D2/D1' を1回で確定し、真因側（D2 なら flow/購読、D1' なら解決経路）を追修正する。ログは軽量なので恒久に残す（削除しない）。
+
+**修正F-C（要望2: detectMoves、§10.34.2 の確定原因への実装）**
+
+- `AlphabeticalAppsList` に `protected boolean shouldDetectMoves() { return false; }` を追加し、`updateAdapterItems()` の `DiffUtil.calculateDiff(cb, false)`（`:376`）を `calculateDiff(cb, shouldDetectMoves())` に変更（AOSP 差分は実質2行）。
+- `LawnchairAlphabeticalAppsList` で override し、**drag 中（`draggedComponentKey != null || pendingOrder != null`）のみ true** を返す。§10.30.6 の「drag 中だけ ItemAnimator」と同じスコープに揃い、検索・アプリ更新など通常経路のコストは従来どおりゼロ。
+- move 検出により `DefaultItemAnimator` が対称な slide を配信し、**左→右/右→左の非対称が解消**する。O(N²) の move 検出は drag 中の数百 item に限られ許容範囲。
+- `BaseAllAppsAdapter.java:156-160` の誤ったコメント（「detectMoves=false でも real move として報告できる」）を訂正する。
+- 受け入れ条件: 並び替えプレビューが左右どちら向きでも同じ slide アニメーションになる。drag 終了後の通常更新の挙動が従来どおり。
+
+**実装・検証順**
+
+1. F-A + F-B（フォルダ表示、1タスク）→ ビルド → コミット → 実機: drop 直後の表示を確認、`MorrowaFolder` ログで D2/D1' を確定。
+2. F-C（アニメ対称化、独立小タスク）→ ビルド → コミット → 実機: 左右対称を確認。
+3. ログで確定した真因（D2/D1'）の本修正を別タスクで設計・実施（F-A により UX は既に直っているため、優先度は下げてよい）。
+4. §10.32.2 の再発防止どおり、各タスク完了ごとにコミット + push。
+
+**備考（今回の調査で見つけた将来の改善候補、非緊急）**: 既定タイトルのまま作成すると同名フォルダが複数できる（現に「自分のフォルダー」が4つ）。`AdapterItem.isSameAs` はフォルダをタイトルで識別するため、同名フォルダは DiffUtil 上同一 identity になり、アニメーションが不正確になり得る（表示自体は正しい）。canonical データには `folder.id` があるので、将来「タイトル + id」識別へ強化する余地がある。また、テスト過程で作られた重複フォルダ（id=5/6 等）は設定画面から削除して構わない。
+
+### 10.36 F-A/F-B/F-C 実装記録（2026-07-08）
+
+§10.35.2 の計画どおり実装した。変更ファイルと内容:
+
+| 修正 | ファイル | 内容 |
+|---|---|---|
+| F-A | `allapps/LawnchairAlphabeticalAppsList.kt` | `createFolder(title, apps)` に楽観的ローカル反映を追加。`viewModel.createFolderWithApps(...)`（既存・裏で DB+reloadGrid）に加え、手元の 2 `AppInfo` から `FolderInfo` を合成（`id=0`）して `folderList.add(...)` → `updateAdapterItems()`。canonical emission が来れば `folderList = folders.toMutableList()` で置き換わる |
+| F-B.1 | `allapps/LawnchairAlphabeticalAppsList.kt` | `observeFolders` ラムダ冒頭で `Log.d("MorrowaFolder", ...)`（発火・folders.size・各 `(id, title, contents.size)`） |
+| F-B.3 | `allapps/LawnchairAlphabeticalAppsList.kt` | `addAppsWithSections` フォルダ分岐で `Log.d`（folder ごとの `contents / resolved(appsStore.getApp) / shown(size>1)`） |
+| F-B.2 | `data/folder/service/FolderService.kt` | `mapToFolderInfo` で `toItemInfo` が null の componentKey を `Log.w("MorrowaFolder", ...)`（D1' 直接検出） |
+| F-C | `src/com/android/launcher3/allapps/AlphabeticalAppsList.java` | `protected boolean shouldDetectMoves()` を追加（既定 false）、`updateAdapterItems` の `calculateDiff(cb, false)` → `calculateDiff(cb, shouldDetectMoves())` |
+| F-C | `allapps/LawnchairAlphabeticalAppsList.kt` | `shouldDetectMoves()` を override、drag 中（`draggedComponentKey != null || pendingOrder != null`）のみ true |
+| F-C | `src/com/android/launcher3/allapps/BaseAllAppsAdapter.java` | §10.22 の誤ったコメント（「detectMoves=false でも real move として報告される」）を §10.34.2 の正しい説明へ訂正 |
+
+`FOLDER_TAG = "MorrowaFolder"` を `LawnchairAlphabeticalAppsList` の private companion に定義。
+
+検証: `compileLawnWithQuickstepGithubDebugJavaWithJavac` → `BUILD SUCCESSFUL in 5m 40s`（新規/変更起因のエラーなし。警告は無関係な既存 `SearchAdapterItem.kt` の hides-Java-field のみ）。**インストールは未完了**: `installLawnWithQuickstepGithubDebug` はコンパイル成功・APK パッケージ済みだが、デバイス転送段階で端末が未接続（`adb devices` が空・Doze/USB 切断）のためハングして失敗（BUILD FAILED、コード起因ではない）。端末再接続後に `installLawnWithQuickstepGithubDebug` を再実行するだけでよい。
+
+未実施（次回実機セッション）:
+- 報告1: drop 直後に再起動なしでフォルダが表示されるか（F-A の受け入れ条件）。
+- 要望2: 並び替えプレビューが左右対称に slide するか（F-C）。
+- 真因確定: 「ドラッグ作成 → `adb logcat -s MorrowaFolder`」で D2（observer 未発火）か D1'（contents 解決失敗）を判定。判定後、F-A で UX は直っている前提で真因の本修正を別タスクで実施。
+- コミット + push は実機確認 OK 後（§10.32.2 の再発防止方針）。
+
+### 10.37 F-A/F-C 実機確認と新要望（フォルダの D&D 操作一式）の整理（2026-07-09）
+
+#### 10.37.1 §10.36 ビルドの実機確認結果
+
+| 項目 | 結果 |
+|---|---|
+| 報告1（フォルダがその場で作られる・F-A） | **解決**。drop 直後・再起動なしでフォルダが表示されるようになった |
+| フォルダの**生成位置** | **不正**。重ねた場所ではなく一覧の**上位**にフォルダが作られる（→ 新要望A） |
+| 要望2（アニメ左右対称・F-C） | **未報告**（ユーザー未言及。次回確認） |
+| 真因ログ D2/D1'（F-B） | **未取得**（logcat 未採取。F-A で症状は消えたため優先度低。ログは恒久設置済みなので次回いつでも採取可） |
+
+F-A が効いた＝楽観エントリ（`folderList` 末尾に追加）が表示されている。生成位置が「上位」なのは、**現状 drawer ではフォルダが一覧の上部ブロックに固めて描画される**ため（§10.37.3）。ここから新要望群に入る。
+
+#### 10.37.2 新要望の整理（A〜D）
+
+ユーザー要望（2026-07-09）を4つに分解:
+
+- **要望A（生成位置）**: フォルダを、重ねた**その場所**に生成する（上部固定ではなく、drop したアプリの位置に）。
+- **要望B（フォルダのドラッグ並び替え）**: フォルダ自体を、他アプリと同じようにドラッグして並び替えられるようにする。ただし**フォルダの階層化は禁止**＝フォルダをフォルダ（やアプリ）に重ねてもフォルダの中にフォルダを作らない（重ねは並び替えのみ）。
+- **要望C（フォルダのドラッグ→その場で離す→解除メニュー）**: フォルダをドラッグしてその場で離した場合、他アプリ同様にメニュー（ポップアップ）を出し、その中に「**フォルダ解除**」の項目**だけ**を出す。解除したら、**解除した場所に**中のアプリが展開されて出る。
+- **要望D（フォルダ内の操作）**: 開いたフォルダの中でも、アプリの並び替えと長押しメニューができるようにする。
+
+#### 10.37.3 現状の drawer フォルダの仕組み（調査結果）
+
+- **管理は設定画面主体**: フォルダの作成/リネーム/削除/メンバー選択/並び順は `ui/preferences/destinations/AppDrawerFoldersPreference.kt`（`drawerListOrder` を並べ替え、`FolderViewModel.deleteFolder` 等）で行う設計。ドロワー内にはフォルダの D&D・解除・フォルダ内並び替えの導線が**無い**。
+- **描画は上部ブロック固定**: `LawnchairAlphabeticalAppsList.addAppsWithSections()`（手動フォルダモード `drawerList=true` の else 分岐）は、`getSortedFolders()` を**先に全部**描画（`AdapterItem.asFolder`）→ その後 `remainingApps` を描画する。つまり**フォルダ群は常に一覧の先頭に集まり、アプリはその下**。フォルダの順序は `drawerListOrder`（フォルダ id の順序文字列）、アプリの順序は `drawerAppOrder`（`DrawerAppOrderEntity` の componentKey→rank、**アプリのみ**）で、**両者は別管理**。
+- **フォルダアイコンは標準 `FolderIcon`**: `all_apps_folder_icon.xml` は `com.android.launcher3.folder.FolderIcon` を膨らませ、`BaseAllAppsAdapter`（`VIEW_TYPE_FOLDER`, `:294-300` / `:385-393`）が `FolderIcon.inflateFolderAndIcon` で生成。クリックで標準 Folder が開く。長押しは現状ドロワー用の特別処理なし。
+- **ドラッグは AppInfo 限定**: `SearchContainerView` の drag 経路（`onDragStart`/`eligibleMainList`/`resolveTargetSlot`）は `dragInfo is AppInfo` を前提。フォルダ（`FolderInfo`）の drag は非対応。フォルダアイコンを長押ししても drawer 内 drag は始まらない。
+
+#### 10.37.4 要望A: フォルダ生成位置 = 統合順序モデルへの変更【本要望群の構造的な核】
+
+- **問題の本質**: フォルダが「上部ブロック固定」なのは §10.37.3 のとおり `addAppsWithSections` がフォルダを先に一括描画するため。生成位置を drop 地点にするには、**フォルダとアプリを1本の順序列に統合**する必要がある（フォルダ用 `drawerListOrder` とアプリ用 `drawerAppOrder` の分離を解消）。
+- **設計方針（推奨）**: 手動順序を「**エントリ列**（各エントリ = アプリの componentKey か、フォルダ id のどちらか）」に一般化する。
+  - 永続化: `DrawerAppOrderEntity`（componentKey, rank）を、種別を持つ統合エントリ（例: `type ∈ {app, folder}`, `key`(componentKey or folderId), `rank`）へ拡張、または新テーブル追加。DB マイグレーション要（現行 v4 → v5）。
+  - 構築: `addAppsWithSections` を「エントリ列を rank 順に走査し、app なら `AdapterItem.asApp`、folder なら `AdapterItem.asFolder` を積む」単一ループへ再構成。フォルダに属するアプリはメイン列から除外（現行 `filteredList` + `pref_hideFolderApps` 準拠）。
+  - 生成: フォルダ作成時、drop 先アプリ（`targetApp`）の rank 位置に新フォルダのエントリを挿入し、`targetApp`/`movedApp` はメイン列から除去（フォルダへ移動）。F-A の楽観反映もこの位置へ挿入するよう変更。
+- **決定事項（ユーザー確認したい）**: フォルダを「アプリ列の中に混在」させてよいか（＝上部ブロックを廃止）。要望Aの素直な解釈はこれ。ただし現行の「フォルダは上、アプリは下」を好むユーザーもいるため、既定挙動として混在にするか要確認。→ §10.37.8 で確認。
+- **影響範囲**: `addAppsWithSections`、`getAppSortComparator`/`drawerAppOrder`、`reorderApp`/`commitPendingOrder`、`getSortedFolders`、DB スキーマ + マイグレーション、設定画面の並び順 UI（`drawerListOrder`）との整合。**最も差分が大きい**。B/C はこの統合順序モデルの上に乗る。
+
+#### 10.37.5 要望B: フォルダのドラッグ並び替え（ネスト禁止）
+
+- **必要な変更**:
+  1. **フォルダアイコンを drag 可能に**: ドロワーのフォルダ（`FolderIcon`）長押しで drawer 内 drag を開始し、`dragInfo` に `FolderInfo`（または folder id を運ぶ ItemInfo）を載せる。Home のアイコン長押し→`beginDragShared` に相当する導線を drawer 用に用意（現状アプリ側がどう drag 開始しているか＝`ActivityAllAppsContainerView` の long-click→drag 経路を踏襲）。
+  2. **`SearchContainerView` をフォルダ drag 対応に**: `onDragStart`/`eligibleMainList`/`resolveTargetSlot`/`acceptDrop`/`onDrop` の `dragInfo is AppInfo` 前提を、`AppInfo` または `FolderInfo`（統合エントリ）を扱えるよう一般化。並び替えは統合順序列（§10.37.4）の rank 移動として実装。
+  3. **ネスト禁止**: ドラッグ中が**フォルダ**のとき、`classifyZone` が FOLDER を返しても**フォルダ作成/投入をしない**（＝常に REORDER 扱い）。アプリをフォルダに重ねた場合の「既存フォルダへ追加（Phase F）」は本要望では扱わない（別途）。少なくとも「フォルダ in フォルダ」は生成経路自体を塞ぐ。
+- **決定事項**: アプリを**既存フォルダに重ねた**ときの挙動（追加 or 並び替えのみ）。要望Bは「フォルダをドラッグして並び替え」なので、まずは**フォルダ drag = 並び替えのみ**に限定し、アプリ→既存フォルダ追加は後続（Phase F）とするのが安全。→ §10.37.8。
+
+#### 10.37.6 要望C: フォルダのドラッグ→その場で離す→「解除」メニュー
+
+- **UX 対応付け**: Launcher3 では長押し→`PopupContainerWithArrow`（ショートカット/アプリ情報のポップアップ）が出て、そのままドラッグすれば drag、動かさず離せばポップアップが残る。要望Cはフォルダ版で「ポップアップに**解除のみ**」。
+- **必要な変更**:
+  1. **フォルダ用ポップアップ**: ドロワーのフォルダ長押し（またはドラッグして未移動で release）で、`SystemShortcut` 相当の「フォルダ解除」1項目だけのポップアップを表示。アプリ側のドロワー長押しポップアップ（`PopupContainerWithArrow` / `LauncherPopupLiveUpdateHandler` 周辺）に、フォルダ ItemInfo のときは解除項目だけを供給する分岐を追加。
+  2. **解除処理**: 「解除」で、そのフォルダの中身アプリを**フォルダの位置**に展開する。統合順序列（§10.37.4）で、フォルダエントリを除去し、その rank 位置に中身アプリの componentKey を rank 順に挿入 → `FolderViewModel.deleteFolder(id)`（既存、folder + items を CASCADE 削除）。`pref_hideFolderApps` で隠れていたアプリがメイン列のその位置に戻る。
+- **決定事項**: 「ドラッグしてその場で離す」と「単なる長押し」を同一の解除ポップアップにまとめてよいか（実装が単純）。要望文は「ドラッグしてその場で離した場合」だが、アプリと同じ操作感なら長押しでも同じポップアップが自然。→ §10.37.8。
+
+#### 10.37.7 要望D: フォルダ内のアプリ並び替え・長押しメニュー
+
+- **現状**: ドロワーのフォルダは標準 `FolderIcon`→クリックで標準 `Folder` が開く。Home のフォルダは開いた状態で並び替え（`FolderPagedView.realTimeReorder`）と各アイコン長押しに対応済み。ドロワー由来フォルダの開いた `Folder` が、その並び替え結果を **Room（`FolderItemEntity.rank`）へ永続化**するか、長押しメニューが drawer 文脈で機能するかは**要調査**。
+- **必要な変更（見込み）**:
+  1. 開いたフォルダ内の並び替えを許可し、確定時に `FolderViewModel.updateFolderItems(id, title, apps)`（既存・並び順を rank で保存）へ反映。
+  2. フォルダ内アイコンの長押しメニュー（アプリ情報/アンインストール/「フォルダから出す」等）を drawer フォルダでも出す。「フォルダから出す」を入れるなら統合順序列への戻し処理が要る（要望Cの解除と共通ロジック）。
+- **決定事項**: フォルダ内アイコンの長押しに何を出すか（最小: アプリ情報のみ／推奨: アプリ情報＋フォルダから出す）。→ §10.37.8。
+
+#### 10.37.8 実装順・要決定事項
+
+**依存関係**: 要望A の統合順序モデルが B/C の土台。D は比較的独立（標準 Folder の drawer 永続化）。
+
+**推奨実装順（各タスクでビルド＋実機＋コミット/push、§10.32.2）**:
+
+1. **タスクG（統合順序モデル・要望A）**: フォルダとアプリを1本の順序列に統合。DB v5 マイグレーション、`addAppsWithSections` 単一ループ化、`reorderApp`/`commitPendingOrder`/F-A 楽観反映を統合列へ。→ フォルダが drop 位置に出る。
+2. **タスクH（フォルダ drag 並び替え・要望B）**: フォルダアイコン長押し→drag、`SearchContainerView` の FolderInfo 対応、ネスト禁止。
+3. **タスクI（解除ポップアップ・要望C）**: フォルダ用ポップアップ（解除のみ）＋解除で中身をその位置へ展開。
+4. **タスクJ（フォルダ内操作・要望D）**: 開いたフォルダの並び替え永続化＋長押しメニュー。
+
+**決定事項（ユーザー確定・2026-07-09）**:
+
+- (A) **アプリ列に混在（上部ブロック廃止）**。フォルダとアプリを単一順序列に統合し、重ねた場所にフォルダを生成する（タスクG）。
+- (B) **既存フォルダに追加する**。アプリを既存フォルダへ深く重ねたらそのフォルダに追加する（＝Phase F を後続ではなく今回スコープに含める）。フォルダ同士のネストは引き続き禁止（フォルダ drag は並び替えのみ）。
+- (C) **長押しでも解除ポップアップを表示**（アプリの長押しと同操作感）。ドラッグ未移動 release と長押しの両方で同じ解除ポップアップ。
+- (D) **標準ホームフォルダと同じ長押しメニュー**（アプリ情報・アンインストール等を含む）。フォルダ内アイコンは Home のフォルダ同様のロングクリックメニューを出す。
+
+この決定に伴うスコープ調整:
+
+- タスクH（要望B）に「**アプリ→既存フォルダへの追加（Phase F）**」を含める。フォルダ drag 時のネスト禁止は維持。`SearchContainerView` の drop 分岐は「ドラッグが App かつ深い重なりの相手が**アプリ**→新規フォルダ、相手が**フォルダ**→そのフォルダに追加、ドラッグが Folder→常に並び替え」に整理。
+- タスクI（要望C）は長押し起点のポップアップを主導線にする（drag 未移動 release も同じポップアップに合流）。
+- タスクJ（要望D）は Home のフォルダ長押しメニュー（`PopupContainerWithArrow` + `SystemShortcut` 群）を drawer フォルダの開いた `Folder` でも有効化し、並び替え結果と「フォルダから出す/アンインストール」を Room（`FolderItemEntity`）へ反映する方針。
+
+**未確定の技術リスク（実装中に詰める）**: (1) 統合順序と設定画面 `drawerListOrder` の二重管理の整理（統合列を正とし、設定画面はそれを編集する形へ寄せるか）。(2) ドロワー由来フォルダの開いた `Folder` が reorder/標準長押しメニューを drawer 文脈で正しく扱えるか（要コード調査、タスクJ 着手時）。(3) DB マイグレーション v4→v5 の後方互換（既存 `drawerAppOrder`/`drawerListOrder` から統合列への移行）。(4) 既存フォルダ追加（B）と解除（C）で、メイン統合列とフォルダ `FolderItemEntity` の整合を両方向で保つこと。
+
+→ タスクG〜J の詳細設計を §10.38 で確定した（リスク (1)〜(4) への対応も織り込み済み）。
+
+### 10.38 タスクG〜J 詳細設計（2026-07-09・コード未変更）
+
+#### 10.38.0 追加調査で確定した事実（設計の前提）
+
+| # | 事実 | 位置 |
+|---|---|---|
+| a | `OptionsPopupView.show(launcher, RectF, List<OptionItem>, ...)` が存在し、任意矩形にアンカーした任意項目のポップアップを出せる（Home の壁紙/ウィジェットメニューで使用実績）。`PopupContainerWithArrow` と違い `BubbleTextView` 前提でない → **解除ポップアップに流用可能** | `views/OptionsPopupView.java:163`（`OptionItem` は `:315,324`） |
+| b | drawer フォルダの ViewHolder は**毎バインドで `FolderIcon` を作り直す**（`removeAllViews()` → `inflateFolderAndIcon`）。**long-click は未配線**。`onBindViewHolder` 冒頭で `itemView.setVisibility(VISIBLE)` に**リセット**される | `BaseAllAppsAdapter.java:296-302`, `:312-313`, `:387-395` |
+| c | `FolderInfo.add(ItemInfo)` は LC 改修済みで `AppInfo` を受け付ける | `model/data/FolderInfo.java:99` |
+| d | `Folder.isInAppDrawer()` = `mInfo.container == NO_ID` が既にあり、drawer フォルダから中身をドラッグすると「フォルダを閉じるだけで item は削除しない」安全な dead-end になっている | `folder/Folder.java:529`, `:507-517` |
+| e | `FolderIcon.isInAppDrawer()` も存在し、複数箇所で drawer 特例が既にある | `folder/FolderIcon.java:430,741,748` |
+| f | 現行の手動順序テーブルは `DrawerAppOrderEntity(componentKey PK, rank)`（アプリ専用） | `data/appdrawer/DrawerAppOrderEntity.kt` |
+| g | `addAppsWithSections` のフォルダ描画は `FolderInfo()` を新規生成して title だけコピーし、**canonical id を引き継いでいない**（`AdapterItem.asFolder` の identity が title 頼みになっている一因） | `LawnchairAlphabeticalAppsList.kt:319-321` |
+
+#### 10.38.1 タスクG: 統合順序モデル（要望A）
+
+**G-1. データモデルとマイグレーション**
+
+- 新テーブル `DrawerOrder`: `DrawerOrderEntity(key: String @PrimaryKey, rank: Int)`。`key` は名前空間付き文字列 **`"app:<componentKey>"` / `"folder:<folderId>"`**（componentKey と folder id の衝突を構造的に排除）。DAO は `getAll(): Flow<List<DrawerOrderEntity>>` + `replaceAll(entities)`（`@Transaction` で DELETE→INSERT、既存 `DrawerAppOrderDao` と同型）。
+- Room は **v4→v5 で CREATE TABLE のみ**（`Migration` は `Context` を持てず `drawerListOrder` pref を読めないため、SQL だけでは現表示順を再現できない）。
+- **データ移行はランタイムシード**: `LawnchairAlphabeticalAppsList`（または repository）が「`DrawerOrder` が空 かつ（旧 `DrawerAppOrder` に行がある or フォルダが存在する）」を検出したら、**現行の表示順**（`getSortedFolders()` 順のフォルダ → `drawerAppOrder`/アルファベット順のアプリ）をそのまま rank 0..N で `DrawerOrder` に書き込む。**アップグレード直後の見た目は不変**（フォルダ上部ブロックのまま）で、以後の並び替え/作成で初めて混在していく。旧 `DrawerAppOrder` テーブルと `drawerListOrder` pref は**残置・参照停止**（書き込みも停止）。
+- メモリ表現: `sealed class DrawerEntry { class App(val info: AppInfo); class Folder(val info: FolderInfo) }` + `fun key(): String`。`SearchContainerView` との受け渡しもこの型に統一する。
+
+**G-2. 読み経路（表示構築）**
+
+- `LawnchairAlphabeticalAppsList` は `DrawerOrder` の Flow を observe して `drawerOrder: Map<String, Int>` を保持（既存 `drawerAppOrder` 観測の置き換え）。
+- `getAppSortComparator()` は継続（アプリの rank は `"app:<key>"` で引く。未登録アプリは末尾アルファベット順）。**mApps の相対順 = 統合列のアプリ相対順**を保ち、DiffUtil と fast scroll の前提を崩さない。
+- `addAppsWithSections()` の手動モード分岐（`drawerList=true` の else）を**単一 walk** に再構成:
+  1. 表示エントリ列を構築: フォルダ（resolve 済み・`size>1` ガード通過のもの）を rank で、アプリ（comparator ソート済み `appList`、`filteredList` 除外後）を rank で、**マージ走査**（rank 同値は folder 優先、rank 無しアプリは末尾）。
+  2. walk 中、folder エントリは `AdapterItem.asFolder`、app エントリは `AdapterItem.asApp` を積む。fast scroll のセクション生成は base の `addAppsWithSections()`（`AlphabeticalAppsList.java:483-518`）と同じ「`sectionName` 変化で `FastScrollSectionInfo` 追加」ロジックを walk 内の app item に対して再現する（現行の手動順時の挙動と同等）。
+  3. **事実g の修正**: `AdapterItem.asFolder` へ渡す `FolderInfo` に canonical `id` を引き継ぐ。あわせて `AdapterItem.isSameAs` のフォルダ識別を「**両方 id≠0 なら id 比較、それ以外は title 比較**」へ強化（同名フォルダ4つ問題 §10.35 備考の解消。楽観エントリ(id=0)は title でマッチし、canonical 化で id マッチへ自然移行）。
+- `getSortedFolders()` は廃止し、フォルダ順も統合列から取る。
+
+**G-3. 書き込み経路（並び替え・作成・楽観反映）**
+
+- `pendingOrder: MutableList<AppInfo>` を **`MutableList<DrawerEntry>` へ一般化**（タスクHの土台。G の時点では App エントリしか動かないが型は entry）。`movedTo`/`previewReorder`/`beginPendingReorder`/`commitPendingOrder`/`reorderApp` を entry ベースへ書き換え、確定時は `DrawerOrder.replaceAll`（表示エントリ列全体を rank=index で書く。フォルダも毎回書かれるので folder rank の別管理が消える）。
+- フォルダ作成（`createFolder`）: 統合列で **targetApp のエントリ位置に folder エントリを挿入**し、member 2アプリの app エントリを**除去**して `replaceAll`。F-A の楽観反映（`folderList.add`）はそのまま、位置は上記 rank が決める。→ **要望A成立**（drop したその場所にフォルダが出る）。
+- **設定画面との整合（リスク(1)の解消）**: 統合列を唯一の正とする。`AppDrawerFoldersPreference` のフォルダ並び替え UI は「folder エントリ同士の相対順を統合列内で入れ替える」操作として `DrawerOrder` へ書く（アプリを跨いだ絶対位置は既存の各 folder エントリ位置を維持したまま、folder エントリの並びだけ順序交換）。`drawerListOrder` は読み書きとも停止。
+
+**G-4. フェーズ分割と受け入れ条件**
+
+| フェーズ | 内容 | 受け入れ条件 |
+|---|---|---|
+| G1 | スキーマ v5 + DAO + ランタイムシード + 読み経路（walk 化） | アップグレード後、見た目・並び順が完全に従来どおり（フォルダ上部・アプリ下部・手動順維持）。再起動後も同じ |
+| G2 | pendingOrder の entry 化 + 書き込みの `DrawerOrder` 化 | アプリ並び替え（drop/preview/WYSIWYG）が従来どおり動き、再起動後も保持。設定画面のフォルダ並び替えが引き続き機能 |
+| G3 | フォルダ作成位置 + 楽観反映の位置対応 | **重ねた場所に**フォルダが生成され（再起動なしで表示、F-A 維持）、再起動後も同位置 |
+
+#### 10.38.2 タスクH: フォルダ drag 並び替え（ネスト禁止）+ アプリ→既存フォルダ追加（要望B + Phase F）
+
+**H-1. フォルダアイコンの長押し→drag 開始**
+
+- 配線場所: `BaseAllAppsAdapter.onBindViewHolder` の `VIEW_TYPE_FOLDER` 分岐（`:387-395`、既に LC-Feature 領域）で、生成した `FolderIcon` に `OnLongClickListener` を設定する。リスナ実体は Lawnchair 側に新設（`DrawerFolderLongClick` 相当）:
+  1. `ItemLongClickListener.onAllAppsItemLongClick`（`touch/ItemLongClickListener.java:150`）と同じゲート（`isInState(ALL_APPS)`、drag 未進行等）。
+  2. 解除ポップアップを表示（タスクI、`OptionsPopupView`）。
+  3. `launcher.getWorkspace().beginDragShared(folderIcon, launcher.getAppsView(), DragOptions(...))` を呼ぶ。`FolderIcon` の tag は `FolderInfo`（`ItemInfo` サブクラス）なので `beginDragShared` の tag チェック（`Workspace.java:1957-1959`）を通り、DragPreviewProvider も View ベースで動く（Home のフォルダ drag 実績）。`DragOptions.preDragCondition` に「タッチスロップ超えで解除ポップアップを close して本 drag へ」を実装（アプリの `PopupContainerWithArrow` と同じ操作感。§9.3 の教訓どおり **state は一切触らない**）。
+- `Workspace.onDragStart` の既存分岐（dragSource が appsView → state 遷移なし）は `FolderInfo` でもそのまま成立。
+- **上部バー**: `AddToHomescreenDropTarget`（AppInfo 前提）・`SecondaryDropTarget`（Uninstall）・`DeleteDropTarget` が `FolderInfo` drag で `supportsDrop=false` になることを確認し（ならない場合は明示ガード追加）、フォルダ drag 中はバーが出ない状態を仕様とする。
+
+**H-2. `SearchContainerView` の entry 一般化**
+
+- `draggedComponentKey` → `draggedEntryKey`（`"app:"`/`"folder:"`）。R1 の attach listener・初回走査も entryKey 照合へ（folder VH は毎バインド reinflate（事実b）だが、drag 中は `isContentSame`（folder は `itemInfo==null` 同士 → true）で rebind が抑制されるため INVISIBLE は維持される。`:313` の bind 時 VISIBLE リセットが効くのは rebind 時のみ＝drag 中は発生しない。実機確認項目に含める）。
+- `eligibleMainList` のゲートを「`dragInfo is AppInfo` **または** `dragInfo is FolderInfo`（drawer フォルダ = `container == NO_ID`）」へ。
+- `resolveTargetSlot`: `VIEW_TYPE_FOLDER` の child もスロットに含める（`TargetSlot` に entryKey を持たせる）。
+- **ゾーン分岐（決定Bを織り込んだ最終形）**:
+
+```text
+drag = App:
+  target = App,    dist ≤ folderEnter → 新規フォルダ作成（既存の R4 経路）
+  target = Folder, dist ≤ folderEnter → 既存フォルダへ追加（H-3）
+  それ以外の REORDER 圏             → 統合列で並び替え
+drag = Folder:
+  classifyZone の結果に関わらず常に REORDER（FOLDER 圏は REORDER に降格）
+  → フォルダ in フォルダ / フォルダ投入は経路ごと存在しない（ネスト禁止）
+```
+
+- ヒステリシス・enter/exit 状態機械（§10.30.3）は entryKey ベースでそのまま流用。
+
+**H-3. アプリ→既存フォルダ追加**
+
+- drop 確定: `FolderViewModel.updateFolderItems(folder.id, folder.title, contents + movedApp)`（既存 API、rank=index で全書き換え）。
+- 楽観反映: `folderList` 内の該当 `FolderInfo.add(movedApp)`（事実c）+ 統合列から moved の app エントリを除去して `replaceAll` + `updateAdapterItems()`。
+- ホバー演出: target が folder のときも同じ scale アップ（`FOLDER_HOVER_SCALE`）。
+- ガード: 楽観フォルダ（id=0、canonical 未着）への追加は**不可**（id=0 なら追加せず並び替えに降格 + `MorrowaFolder` ログ。canonical 置き換えは通常サブ秒で完了するため実用上問題なし）。
+
+**H-4. フェーズと受け入れ条件**
+
+| フェーズ | 内容 | 受け入れ条件 |
+|---|---|---|
+| H1 | フォルダ長押し→drag→統合列並び替え（ネスト禁止） | フォルダをドラッグして任意位置（アプリ間含む）へ並び替えでき、再起動後も保持。フォルダに深く重ねても何も作られない。ドラッグ中バーが出ない。R1 不可視・着地アニメがフォルダでも機能 |
+| H2 | アプリ→既存フォルダ追加 | アプリをフォルダに深く重ねると scale 演出→drop で中身に追加され（drawer 即時反映+Room 永続化）、メイン一覧から消える。浅い重なりは並び替え |
+
+#### 10.38.3 タスクI: フォルダ解除ポップアップ（要望C）
+
+- **文言/リソース**: 新規 string `drawer_folder_disband` = 「フォルダを解除」（en: "Disband folder"）。アイコンは既存 `ic_remove_no_shadow`。
+- **表示**: H-1 の長押しハンドラから `OptionsPopupView.show(launcher, RectF(FolderIcon の DragLayer 相対矩形), listOf(OptionItem(drawer_folder_disband, ...)), /* shouldAddArrow */ false)`（事実a）。ドラッグ未移動で release → ポップアップが残る（`OptionsPopupView` の既定動作）。移動 → `preDragCondition.shouldStartDrag` で `AbstractFloatingView.closeOpenViews` により閉じて drag へ（決定C: 長押し・その場 release どちらも同じポップアップ）。
+- **解除処理 `disbandFolder(folder)`**（リスク(4) の片方向）:
+  1. 統合列: folder エントリ（rank r）を除去し、`folder.getContents()` の**メンバーを rank 順に r から連続挿入**（`"app:<key>"` エントリ復活。`pref_hideFolderApps=false` 等で既にメイン列にエントリが存在するアプリはスキップ）→ `replaceAll`。
+  2. `FolderViewModel.deleteFolder(folder.id)`（既存。`FolderItems` は FK CASCADE で消える）。
+  3. 楽観反映: `folderList` から除去 + `updateAdapterItems()` → **解除した位置に中身が展開されて出る**。
+- 受け入れ条件: フォルダ長押しで「フォルダを解除」だけのポップアップが出る。解除するとその位置に中のアプリが順序どおり展開され、再起動後も保持。設定画面のフォルダ一覧からも消える。ポップアップを無視してドラッグすれば H の並び替えができる。
+
+#### 10.38.4 タスクJ: フォルダ内の並び替え・長押しメニュー（要望D）
+
+- **前提（事実d/e）**: drawer フォルダを開いた標準 `Folder` は `isInAppDrawer()` で識別でき、開いた中での並び替え自体（`FolderPagedView.realTimeReorder`）は Home 実装がメモリ上（`mInfo` の並び）では既に動く見込み。**欠けているのは Room への永続化と、長押しメニューの動作確認**。
+- **J1（並び替えの永続化）**: `Folder` の並び替え確定点（`onDrop` の `rearrangeChildren()` 後、または `close`）に `isInAppDrawer()` ガード付きの LC フック（1〜2行）を追加し、Lawnchair 側で `mInfo` の現在順序を `FolderViewModel.updateFolderItems(mInfo.id, mInfo.title, apps)` へ書く。**`mInfo.id == 0`（楽観フォルダのまま開いた）場合は書かずに `MorrowaFolder` ログ**（canonical 置き換え後は id 付きで開かれる）。
+- **J2（長押しメニュー）**: フォルダ内アイコン（`BubbleTextView`）の長押しに標準ポップアップ（アプリ情報・Uninstall・deep shortcuts = Home のフォルダと同一、決定D）を出す。**要調査ポイント（着手時最初に確認）**: Home のフォルダ内長押しは `ItemLongClickListener.onWorkspaceItemLongClick` 経路で、`NORMAL` 系 state ゲートを持つ可能性が高い。drawer フォルダは `ALL_APPS` state で開くため、`Folder` のアイコン bind 時に `isInAppDrawer()` なら ALL_APPS ゲートのリスナ（`onAllAppsItemLongClick` 相当）へ差し替える分岐が必要になる見込み。Uninstall 実行後の整合は、次回 emit 時に `toItemInfo` が null → contents から自然消滅（`FolderItems` の残骸行は表示に影響しないため掃除は将来課題）。
+- **J3（スコープ外の明記）**: フォルダから外への**ドラッグ排出**は今回やらない（現状は事実d のとおり「閉じるだけ」の安全な dead-end。中身を出す手段は解除（I）と設定画面で提供済み。将来 Phase F' として統合列への drop 対応を検討）。
+- 受け入れ条件: drawer フォルダ内でアイコンをドラッグ並び替え→閉じて開き直しても順序保持（再起動でも）。フォルダ内アイコン長押しで Home フォルダと同じメニューが出て、アプリ情報/Uninstall が機能する。
+
+#### 10.38.5 リスク対応の対応表と実装順
+
+| §10.37.8 リスク | 対応 |
+|---|---|
+| (1) drawerListOrder との二重管理 | G-3: 統合列を唯一の正に。設定画面は統合列を編集、pref は読み書き停止・残置 |
+| (2) 開いた Folder の drawer 文脈 | J1/J2: `isInAppDrawer()`（既存）ガードのフックで永続化、長押しゲートは着手時に要調査と明記 |
+| (3) v4→v5 移行 | G-1: SQL は CREATE のみ + ランタイムシードで現表示順を保存（アップグレード直後の見た目不変） |
+| (4) 統合列と FolderItems の双方向整合 | H-3（追加=列から除去+items 追記）/ I（解除=items 削除+列へ展開）を各1関数に集約し、楽観反映とセットで実装 |
+
+**実装順（各タスクでビルド→実機確認→コミット+push、§10.32.2 遵守）**: G1 → G2 → G3 → H1 → H2 → I → J1 → J2。G1/G2 は「挙動不変」の受け入れ条件を持つ純リファクタなので、ここで回帰（並び替え・fast scroll・検索・Work タブ・フォルダ表示・設定画面）を厚めに確認してから G3 以降の挙動変更に進む。§10.36 の残項目（F-C の左右対称の実機確認、`MorrowaFolder` ログによる D2/D1' 確定）は G1 の実機確認と同じセッションで一緒に消化する。

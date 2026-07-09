@@ -75,6 +75,20 @@ class FolderViewModel(
         }
     }
 
+    /**
+     * Morrowa §10.26 (R3) + §10.32.3: creates a new folder named [title] holding [appInfos] and
+     * refreshes the launcher. Mirrors [createFolder]/[updateFolderItems]: the repository write
+     * (folder + items, atomic) is awaited *before* [ReloadHelper.reloadGrid] so the App Drawer's
+     * folders observer rebuilds with the new folder's contents already present -- creating the
+     * folder shows it in place, with no relaunch needed.
+     */
+    fun createFolderWithApps(title: String, appInfos: List<AppInfo>) {
+        viewModelScope.launch {
+            repository.createFolderWithItems(title, appInfos)
+            reloadHelper.reloadGrid()
+        }
+    }
+
     fun deleteFolder(id: Int) {
         viewModelScope.launch {
             repository.deleteFolderInfo(id)

@@ -18,8 +18,36 @@ interface FolderDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFolder(folder: FolderInfoEntity)
 
+    /**
+     * Morrowa §10.26 (R3): like [insertFolder] but returns the auto-generated row id so a
+     * brand-new folder's children can be linked to it in the same transaction. [insertFolder]
+     * returns Unit, which left callers with no way to learn the id Room generated.
+     */
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFolderReturningId(folder: FolderInfoEntity): Long
+
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertFolderItems(items: List<FolderItemEntity>)
+
+    /**
+     * Morrowa §10.26 (R3) + §10.32.3: creates a new folder AND its initial members atomically.
+     * [folder] is forced to id=0 so Room always inserts a fresh row; [items] is a factory given
+     * the generated id so the children carry the correct foreign key. Because folder + items are
+     * written in a single @Transaction, [FolderService.getFoldersFlow] only ever emits this folder
+     * once its contents are already present -- this is what makes the newly created folder appear
+     * in the App Drawer immediately instead of only after a relaunch (the "folder created only
+     * after restart" bug: LawnchairAlphabeticalAppsList#addAppsWithSections only renders a folder
+     * whose resolved contents size is > 1).
+     */
+    @Transaction
+    suspend fun createFolderWithItems(
+        folder: FolderInfoEntity,
+        items: (folderId: Int) -> List<FolderItemEntity>,
+    ): Int {
+        val newId = insertFolderReturningId(folder.copy(id = 0)).toInt()
+        insertFolderItems(items(newId))
+        return newId
+    }
 
     @Query("SELECT * FROM Folders WHERE id = :folderId")
     @Transaction

@@ -154,10 +154,12 @@ public abstract class BaseAllAppsAdapter<T extends Context & ActivityContext> ex
          * Returns true if the items represent the same object.
          *
          * Morrowa: for icons and drawer folders, this also requires matching identity
-         * (component+user, or folder title) rather than just viewType/class, so DiffUtil
-         * (detectMoves=false, see AlphabeticalAppsList#updateAdapterItems) can report reordering
-         * as real moves instead of rebinding every affected position to a different app. See
-         * docs/Morrowa_AppDrawer_編集モード_実装計画.md §10.21.
+         * (component+user, or folder title) rather than just viewType/class, so DiffUtil doesn't
+         * rebind every affected position to a different app on a reorder. NOTE (§10.34.2): identity
+         * matching alone does NOT make a reorder animate as a move -- DiffUtil only reports moves
+         * when called with detectMoves=true (AlphabeticalAppsList#shouldDetectMoves, enabled during
+         * a drag, §10.35 F-C); with detectMoves=false a moved item is still remove+insert. See
+         * docs/Morrowa_AppDrawer_編集モード_実装計画.md §10.21 and §10.34.2.
          */
         public boolean isSameAs(AdapterItem other) {
             if (other.viewType != viewType || other.getClass() != getClass()) {

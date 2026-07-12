@@ -38,13 +38,22 @@ object DrawerFolderReorder {
     fun persistOrder(context: Context, folder: FolderInfo) {
         val id = folder.id
         val title = folder.title?.toString().orEmpty()
-        if (id == 0) {
-            Log.w(TAG, "Skipping drawer folder reorder persist: optimistic folder (id=0) title=$title")
+        // Canonical Room ids are > 0; an optimistic folder still carries ItemInfo.NO_ID (-1).
+        if (id <= 0) {
+            Log.w(TAG, "Skipping drawer folder reorder persist: optimistic folder (id=$id) title=$title")
             return
         }
-        val apps = folder.getContents().filterIsInstance<AppInfo>()
-        if (apps.isEmpty()) {
-            Log.w(TAG, "Skipping drawer folder reorder persist: no AppInfo contents (id=$id title=$title)")
+        val contents = folder.getContents()
+        val apps = contents.filterIsInstance<AppInfo>()
+        // A drawer folder's contents must be AppInfo only (Folder#onDrop keeps the dragged item's
+        // original AppInfo when isInAppDrawer()). Persisting a partial list would silently delete
+        // the missing members from Room, so refuse instead.
+        if (apps.isEmpty() || apps.size != contents.size) {
+            Log.w(
+                TAG,
+                "Skipping drawer folder reorder persist: non-AppInfo contents " +
+                    "(id=$id title=$title apps=${apps.size}/${contents.size})",
+            )
             return
         }
         val application = context.applicationContext as? Application ?: run {

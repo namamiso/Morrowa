@@ -2025,3 +2025,35 @@ drag = Folder:
 - `getAppSortComparator` の preview 分岐が `DrawerEntry.App` 前提になり、既存 drag 経路（AppInfo index）と噛み合っているか。
 
 worktree（G/J エージェント）は差し戻し・追加調査のため保持。**この巻き戻し/退行は 16-dev に push 済みのため、次は真因究明→修正を最優先とする。**
+
+### 10.41 真因究明（静的解析）と J1 系の修正（2026-07-12）
+
+§10.40 の全滅を静的解析で切り分けた。**「コンパイル成功≠動作」の正体は、AOSP 側経路の型変換・state 遷移に対する思い込み（J 系）と、G の順序モデルがプレビュー機構を無効化していたこと（G 系）**。実機追試（ユーザー報告）で J 系は症状一致を確認済み: 「フォルダ内並び替えは**動くが保存されない**」「長押し→ドラッグで**背景がホーム（編集画面）に遷移**、フォルダだけ浮いたまま」。
+
+#### 10.41.1 J 系の確定真因（今回修正済み）
+
+| # | 真因 | 症状 |
+|---|---|---|
+| J1-a | `Folder.onDrop` の再追加分岐で `d.dragInfo instanceof WorkspaceItemFactory` に **AppInfo が該当**（`AppInfo.java:49` が実装）し、`makeWorkspaceItem()` の **WorkspaceItemInfo コピー**が contents に入る。`DrawerFolderReorder.persistOrder` の `filterIsInstance<AppInfo>()` がそれを黙って捨て、`updateFolderItems` が**ドラッグした項目抜き**で全置換（REPLACE→FK CASCADE で旧行全削除） | 並び替えが保存されない＋**動かしたアプリが Room 上フォルダから消える**（2個フォルダは表示ゲート割れで消滅） |
+| J1-b | `Workspace.onDragStart` の Morrowa ゲートが `dragSource instanceof ActivityAllAppsContainerView` のみで、**drawer フォルダ内 drag（dragSource=Folder）が素通り** → `goToState(SPRING_LOADED)` | ドラッグ開始で背景がホーム編集画面へ（フォルダは DragLayer 上に残る） |
+| J1-c | `Folder.onDrop` 末尾の `goToState(NORMAL, SPRING_LOADED_EXIT_DELAY)`（Home 前提）。J1 以前は drag 開始即閉じで到達不能だった | drop 後にドロワー＋フォルダが閉じてホームへ |
+| J1-d | `persistOrder` の楽観フォルダガードが `id == 0`。実際は `NO_ID = -1`（G レビューで `isSameAs` は `id > 0` に直したのと同種の取り違え） | ガードが一度も効かず、楽観フォルダの reorder が id=-1 のゴミ行を書き得る |
+
+**修正（このコミット）**:
+- `Workspace.java` `onDragStart`: state 無変更ゲートに `isAppDrawerFolderDrag()`（dragSource が `Folder` かつ `isInAppDrawer()`）を追加。`addNewPage`（空ページ先行追加）も同条件で抑制。
+- `Folder.java` `onDrop`: ①`isInAppDrawer()` 時は `makeWorkspaceItem` コピーを作らず**元の AppInfo を保持**（contents の型不変を維持）②`isInAppDrawer()` 時は `goToState(NORMAL)` をスキップ。
+- `DrawerFolderReorder.kt`: ガードを `id <= 0` に修正。contents に非 AppInfo が混ざった場合（`apps.size != contents.size`）は**永続化を拒否して警告ログ**（部分リストの書き込み＝メンバー削除事故の防止）。
+
+#### 10.41.2 G 系の確定真因（未修正・次バッチ）
+
+1. **プレビュー無効化（確定）**: `buildOrderedEntries` の sorted モードが表示順を**永続 rank だけで sort** するため、`pendingOrder` コンパレータによる `mApps` の並び替えが毎回上書きされ、**並び替えプレビューが一切表示されない**（F-C「未達」の正体も move 不発生）。fallback モードならプレビューは動くが、その場合フォルダが上部固定＝要望A が死ぬ。どちらのモードでも受け入れ条件割れ。
+2. **`pendingOrder` 永久リーク（確定）**: `DragController.drop` は `acceptDrop=false` でも `dragComplete=true` を先に立てるため `onDragExit` はプレビューを温存、その後 `onDrop` は呼ばれず**誰も `cancelPendingReorder()` しない**（`onDragEnd` にも解除なし）。拒否 drop（自スロット上・REORDER 圏外）1回で以後の drag が stale スナップショットを commit し続ける。プレビュー不可視（1.）で拒否 drop が高頻度化し複合。
+3. **シード競合（レース）**: `maybeSeedDrawerOrder` の one-shot が、軽い `DrawerAppOrder` flow の先行 emit で**フォルダ到着前に発火**し得る → フォルダ永久 unranked → 恒久 fallback、初 commit で突然 sorted モードへ切替わる不整合。
+4. **楽観状態の巻き戻し（レース）**: `observeDrawerOrder` の stale emission がメモリの楽観 `drawerOrder` を上書き。フォルダ作成は「drop 位置→上部→drop 位置」の3段バウンド表示になり得る。
+
+**修正方針（次バッチ、Codex タスク化）**: ①ドラッグ中は `pendingOrder` を表示順の正として `buildOrderedEntries` を構成 ②拒否 drop 時の `cancelPendingReorder`（`onDragEnd` に安全網）③シード条件を folders flow 初回 emission 後に限定 ④楽観状態と Flow emission の世代整合。
+
+#### 10.41.3 反省点（§10.40 に追加）
+
+- J1-a/J1-b は **AOSP 共有経路（`Folder.onDrop`・`Workspace.onDragStart`）の暗黙前提（contents=WorkspaceItemInfo、drag=Home 文脈）**を drawer 文脈で踏んだもの。drawer に AOSP 経路を「開通」させるタスクは、経路上の型変換と state 遷移の全数チェックをレビュー観点に含める。
+- §10.40 の初回切り分けは `SearchContainerView`/`LawnchairAlphabeticalAppsList` に集中し、`Workspace.onDragStart` のゲート漏れを見落とした。「実機の見た目の症状」（背景がホームへ）が最短の切り分け情報だった。

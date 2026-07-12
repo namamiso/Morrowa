@@ -1599,8 +1599,14 @@ public class Folder extends AbstractFloatingView implements ClipPathView, DragSo
             final ItemInfo si;
             if (pasiSi != null) {
                 si = pasiSi;
-            } else if (d.dragInfo instanceof WorkspaceItemFactory) {
+            } else if (d.dragInfo instanceof WorkspaceItemFactory && !isInAppDrawer()) {
                 // Came from all apps -- make a copy.
+                // Morrowa §10.38.4 J1: NOT for an App Drawer folder. Its contents are AppInfo
+                // (which implements WorkspaceItemFactory), and converting the dragged item to a
+                // WorkspaceItemInfo copy here would make DrawerFolderReorder#persistOrder's
+                // filterIsInstance<AppInfo>() silently drop it -- the reorder would never persist
+                // and the dragged app would be removed from the folder in Room. Keep the original
+                // AppInfo so the contents stay homogeneous.
                 si = ((WorkspaceItemFactory) d.dragInfo).makeWorkspaceItem(launcher);
             } else {
                 // WorkspaceItemInfo or AppPairInfo
@@ -1658,7 +1664,10 @@ public class Folder extends AbstractFloatingView implements ClipPathView, DragSo
                     mActivityContext.getModelWriter());
         }
 
-        if (!launcher.isInState(EDIT_MODE)) {
+        // Morrowa §10.38.4 J1: an App Drawer folder's drop must stay in ALL_APPS -- exiting to
+        // NORMAL here (Home's spring-loaded exit) would close the drawer and the folder right
+        // after an in-folder reorder (§9.3: never touch state from drawer paths).
+        if (!isInAppDrawer() && !launcher.isInState(EDIT_MODE)) {
             launcher.getStateManager().goToState(NORMAL, SPRING_LOADED_EXIT_DELAY);
         }
 

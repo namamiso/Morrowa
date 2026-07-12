@@ -5,7 +5,6 @@ import android.content.pm.LauncherApps
 import android.util.Log
 import app.lawnchair.data.AppDatabase
 import app.lawnchair.data.Converters
-import app.lawnchair.data.appdrawer.DrawerOrderEntity
 import app.lawnchair.data.folder.FolderInfoEntity
 import app.lawnchair.data.toEntity
 import com.android.launcher3.AppFilter
@@ -56,72 +55,12 @@ class FolderService @Inject constructor(
         folderDao.insertFolder(FolderInfoEntity(title = folderInfo.title.toString()))
     }
 
-    /**
-     * Morrowa §10.26 (R3): creates a brand-new folder titled [title] containing [appInfos] as its
-     * initial members (rank = list order), returning the generated folder id. Folder + items are
-     * written atomically (see [FolderDao.createFolderWithItems]) so the folders flow emits a
-     * fully-populated folder.
-     */
-    suspend fun createFolderWithItems(title: String, appInfos: List<AppInfo>): Int = withContext(Dispatchers.IO) {
-        folderDao.createFolderWithItems(
-            FolderInfoEntity(title = title),
-        ) { newId ->
-            appInfos.mapIndexed { index, appInfo ->
-                appInfo.toEntity(newId).copy(rank = index)
-            }
-        }
-    }
-
     suspend fun updateFolderInfo(folderInfo: FolderInfo, hide: Boolean = false) = withContext(Dispatchers.IO) {
         folderDao.updateFolderInfo(folderInfo.id, folderInfo.title.toString(), hide)
     }
 
     suspend fun deleteFolderInfo(id: Int) = withContext(Dispatchers.IO) {
         folderDao.deleteFolder(id)
-        // Morrowa §10.38.1 G-2: drop the folder's entry from the unified DrawerOrder too and
-        // renumber, so a deleted folder leaves no stale slot behind.
-        val dao = AppDatabase.INSTANCE.get(context).drawerOrderDao()
-        val remaining = dao.getAllOnce()
-            .filterNot { it.key == "$FOLDER_PREFIX$id" }
-            .sortedBy { it.rank }
-            .mapIndexed { index, entity -> DrawerOrderEntity(key = entity.key, rank = index) }
-        dao.replaceAll(remaining)
-    }
-
-    /**
-     * Morrowa §10.38.1 G-2 (settings integration): applies the App Drawer folders settings-screen
-     * reorder to the unified DrawerOrder. The relative order of the folder entries is replaced by
-     * [newFolderIds] while every app entry keeps its exact slot (only the folder keys occupying the
-     * existing folder slots are swapped, top-to-bottom). If DrawerOrder hasn't been seeded yet
-     * (empty), it is seeded folder-first from [newFolderIds] then apps from the legacy
-     * DrawerAppOrder, preserving any pre-upgrade app manual order. Any folders not yet present in
-     * DrawerOrder are appended.
-     */
-    suspend fun reorderDrawerFolders(newFolderIds: List<Int>) = withContext(Dispatchers.IO) {
-        val dao = AppDatabase.INSTANCE.get(context).drawerOrderDao()
-        val current = dao.getAllOnce().sortedBy { it.rank }
-        val newFolderKeys = ArrayDeque(newFolderIds.map { "$FOLDER_PREFIX$it" })
-        val orderedKeys: List<String> = if (current.isEmpty()) {
-            val legacy = AppDatabase.INSTANCE.get(context).drawerAppOrderDao()
-                .getAllOnce().sortedBy { it.rank }
-            newFolderIds.map { "$FOLDER_PREFIX$it" } + legacy.map { "$APP_PREFIX${it.componentKey}" }
-        } else {
-            val remapped = mutableListOf<String>()
-            for (row in current) {
-                if (row.key.startsWith(FOLDER_PREFIX)) {
-                    // Fill this folder slot with the next folder in the new order; if the new order
-                    // has fewer folders (e.g. a stale slot for a since-deleted folder), drop it.
-                    if (newFolderKeys.isNotEmpty()) remapped.add(newFolderKeys.removeFirst())
-                } else {
-                    remapped.add(row.key)
-                }
-            }
-            // Folders that had no slot yet (e.g. created from settings) go to the end.
-            remapped.addAll(newFolderKeys)
-            remapped
-        }
-        val entities = orderedKeys.mapIndexed { index, key -> DrawerOrderEntity(key = key, rank = index) }
-        dao.replaceAll(entities)
     }
 
     suspend fun getFolderInfo(folderId: Int, hasId: Boolean = false): FolderInfo? = withContext(Dispatchers.Default) {
@@ -141,14 +80,8 @@ class FolderService @Inject constructor(
             folderWithItems.items.sortedBy { it.rank }.forEach { itemEntity ->
                 // Consider caching toItemInfo results if componentKey lookups are slow
                 // and items don't change frequently without folder data changing
-                val appInfo = toItemInfo(itemEntity.componentKey)
-                if (appInfo != null) {
+                toItemInfo(itemEntity.componentKey)?.let { appInfo ->
                     domainFolderInfo.add(appInfo)
-                } else {
-                    // Morrowa §10.35 F-B: directly detects D1' (a folder emitted with a member whose
-                    // componentKey no longer resolves to an installed app, so the folder falls below
-                    // the display gate). Kept permanently -- only logs on the failure path.
-                    Log.w("MorrowaFolder", "toItemInfo unresolved for componentKey=${itemEntity.componentKey} (folder id=${folderWithItems.folder.id})")
                 }
             }
             domainFolderInfo
@@ -187,10 +120,6 @@ class FolderService @Inject constructor(
     }
 
     companion object {
-        // Morrowa §10.38.1 G-1: DrawerOrder key namespaces (mirror DrawerEntry.key()).
-        private const val APP_PREFIX = "app:"
-        private const val FOLDER_PREFIX = "folder:"
-
         @JvmField
         val INSTANCE = DaggerSingletonObject(LauncherAppComponent::getFolderService)
     }

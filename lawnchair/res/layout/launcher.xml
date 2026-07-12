@@ -70,6 +70,10 @@
             android:paddingBottom="12dp"
             android:visibility="gone" />
 
+        <include
+            android:id="@+id/drop_target_bar"
+            layout="@layout/drop_target_bar" />
+
         <app.lawnchair.views.LawnchairScrimView
             android:layout_width="match_parent"
             android:layout_height="match_parent"
@@ -85,13 +89,6 @@
             layout="@layout/all_apps"
             android:layout_width="match_parent"
             android:layout_height="match_parent" />
-
-        <!-- Morrowa: kept as the DragLayer's last (frontmost) child so it renders above the
-             App Drawer, which stays visible (ALL_APPS state) during App-Drawer-origin drags.
-             See docs/Morrowa_AppDrawer_編集モード_実装計画.md §9.7.1/9.7.3. -->
-        <include
-            android:id="@+id/drop_target_bar"
-            layout="@layout/drop_target_bar" />
 
     </com.android.launcher3.dragndrop.DragLayer>
 

@@ -48,8 +48,6 @@ import com.android.launcher3.model.data.AppInfo;
 import com.android.launcher3.model.data.FolderInfo;
 import com.android.launcher3.views.ActivityContext;
 
-import java.util.Objects;
-
 /**
  * Adapter for all the apps.
  *
@@ -151,56 +149,18 @@ public abstract class BaseAllAppsAdapter<T extends Context & ActivityContext> ex
         }
 
         /**
-         * Returns true if the items represent the same object.
-         *
-         * Morrowa: for icons and drawer folders, this also requires matching identity
-         * (component+user, or folder title) rather than just viewType/class, so DiffUtil doesn't
-         * rebind every affected position to a different app on a reorder. NOTE (§10.34.2): identity
-         * matching alone does NOT make a reorder animate as a move -- DiffUtil only reports moves
-         * when called with detectMoves=true (AlphabeticalAppsList#shouldDetectMoves, enabled during
-         * a drag, §10.35 F-C); with detectMoves=false a moved item is still remove+insert. See
-         * docs/Morrowa_AppDrawer_編集モード_実装計画.md §10.21 and §10.34.2.
+         * Returns true if the items represent the same object
          */
         public boolean isSameAs(AdapterItem other) {
-            if (other.viewType != viewType || other.getClass() != getClass()) {
-                return false;
-            }
-            if (viewType == VIEW_TYPE_ICON) {
-                return itemInfo != null && other.itemInfo != null
-                        && Objects.equals(itemInfo.componentName, other.itemInfo.componentName)
-                        && Objects.equals(itemInfo.user, other.itemInfo.user);
-            }
-            if (viewType == VIEW_TYPE_FOLDER) {
-                // Morrowa §10.38.1 G-1 (fact g fix): prefer canonical folder id -- when both sides
-                // carry a real DB id (> 0; default is NO_ID = -1, synthetic/optimistic folders too),
-                // compare by id so several folders sharing a title are distinct. Fall back to title
-                // otherwise, which is how an optimistic folder (id still NO_ID) matches its canonical
-                // self until the DB round-trips (§10.35 note: the "four same-named folders" case).
-                if (folderInfo.id > 0 && other.folderInfo.id > 0) {
-                    return folderInfo.id == other.folderInfo.id;
-                }
-                return Objects.equals(folderInfo.title, other.folderInfo.title);
-            }
-            return true;
+            return (other.viewType == viewType) && (other.getClass() == getClass());
         }
 
         /**
          * This is called only if {@link #isSameAs} returns true to check if the contents are same
          * as well. Returning true will prevent redrawing of thee item.
-         *
-         * Morrowa: for icons, uses reference equality on itemInfo so a model update (app
-         * relaunch/label change producing a new AppInfo instance) still triggers a rebind, while
-         * a pure reorder (same AppInfo instance moved to a new position) does not. See
-         * docs/Morrowa_AppDrawer_編集モード_実装計画.md §10.21.
          */
         public boolean isContentSame(AdapterItem other) {
-            if (itemInfo == null && other.itemInfo == null) {
-                return true;
-            }
-            if (itemInfo == null || other.itemInfo == null) {
-                return false;
-            }
-            return itemInfo == other.itemInfo;
+            return itemInfo == null && other.itemInfo == null;
         }
 
         @Nullable

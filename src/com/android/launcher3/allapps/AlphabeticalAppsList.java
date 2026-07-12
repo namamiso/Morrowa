@@ -49,7 +49,6 @@ import com.android.launcher3.views.ActivityContext;
 
 import java.io.PrintWriter;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -234,15 +233,6 @@ public class AlphabeticalAppsList<T extends Context & ActivityContext> implement
     }
 
     /**
-     * Morrowa: returns the comparator used to sort the main app list before
-     * {@link #addAppsWithSections}. Defaults to alphabetical; subclasses (see
-     * {@code LawnchairAlphabeticalAppsList}) can override to apply a persisted manual order.
-     */
-    protected Comparator<AppInfo> getAppSortComparator() {
-        return mAppNameComparator;
-    }
-
-    /**
      * Updates internals when the set of apps are updated.
      */
     @Override
@@ -267,10 +257,7 @@ public class AlphabeticalAppsList<T extends Context & ActivityContext> implement
                         .filter(mPrivateProviderManager.getItemInfoMatcher());
             }
         }
-        // Morrowa: main app list can be sorted by a persisted manual order (see
-        // LawnchairAlphabeticalAppsList#getAppSortComparator); the private-space section always
-        // stays alphabetical.
-        appSteam = appSteam.sorted(getAppSortComparator());
+        appSteam = appSteam.sorted(mAppNameComparator);
         privateAppStream = privateAppStream.sorted(mAppNameComparator);
 
         // As a special case for some languages (currently only Simplified Chinese), we may need to
@@ -373,19 +360,9 @@ public class AlphabeticalAppsList<T extends Context & ActivityContext> implement
         }
 
         if (mAdapter != null) {
-            DiffUtil.calculateDiff(new MyDiffCallback(oldItems, mAdapterItems), shouldDetectMoves())
+            DiffUtil.calculateDiff(new MyDiffCallback(oldItems, mAdapterItems), false)
                     .dispatchUpdatesTo(mAdapter);
         }
-    }
-
-    /**
-     * Morrowa §10.35 F-C: whether DiffUtil should detect moves when dispatching updates. Default
-     * false (AOSP behaviour). Subclasses enable it during a drag-reorder so DefaultItemAnimator
-     * plays a symmetric slide rather than the direction-asymmetric remove+insert that
-     * detectMoves=false yields (see docs §10.34.2).
-     */
-    protected boolean shouldDetectMoves() {
-        return false;
     }
 
     int addPrivateSpaceItems(int position) {

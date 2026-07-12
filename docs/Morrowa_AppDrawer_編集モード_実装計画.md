@@ -2057,3 +2057,18 @@ worktree（G/J エージェント）は差し戻し・追加調査のため保�
 
 - J1-a/J1-b は **AOSP 共有経路（`Folder.onDrop`・`Workspace.onDragStart`）の暗黙前提（contents=WorkspaceItemInfo、drag=Home 文脈）**を drawer 文脈で踏んだもの。drawer に AOSP 経路を「開通」させるタスクは、経路上の型変換と state 遷移の全数チェックをレビュー観点に含める。
 - §10.40 の初回切り分けは `SearchContainerView`/`LawnchairAlphabeticalAppsList` に集中し、`Workspace.onDragStart` のゲート漏れを見落とした。「実機の見た目の症状」（背景がホームへ）が最短の切り分け情報だった。
+
+### 10.42 【決定】編集モード全面ロールバック（2026-07-12）
+
+§10.41 の修正後も実機挙動は「全く挙動がおかしい」（ユーザー確認）。個別バグではなく構造問題（①AOSP 内部機構＝DragController/Folder/state machine を設計外の ALL_APPS+Room 文脈へ間借りしたことによる暗黙前提の地雷原、②表示が5つの非同期入力の競合合成、③実機手動確認以外の検証手段の不在）と結論し、**イタチごっこの継続を中止**。フォーク元変更案も検討したが、敗因はフォーク元ではなく「ホスト内部を曲げる」実装方針にあるため Lawnchair 残留とした。
+
+**実施**: 16-dev のコードを編集モード着手直前の安定点 `823711035f`（設定画面からのフォルダ管理までを含む）へスナップショット revert。docs（本ファイル含む §10 の全知見）は現状のまま温存。ドロワー編集の全コード（drag 並び替え・drop フォルダ生成・DrawerAppOrder/DrawerOrder テーブル・AddToHomescreenDropTarget・Folder/Workspace への Morrowa フック一式、29ファイル +2232/-55）を撤去。
+
+**注意（実機）**: Room が v5 → v3 のダウングレードになるため、**revert 後ビルドの初回起動前にテスト機の Morrowa アプリデータ消去が必須**（v5 のままだと起動クラッシュ。テストで DB は既に破損しているため実害なし）。
+
+**今後の方針（次フェーズ）**: 要件を再定義してから設計を固め直し、以下の原則で再実装する（詳細は要件確定後に新規設計ドキュメントとして起こす）:
+1. **Morrowa 独自 UX は AOSP 内部機構を曲げず、Morrowa 所有のレイヤーで実装する。AOSP 側に置いてよいのはガード付きフックのみ。**
+2. 並び替えは `DragController` ではなく RecyclerView 標準 `ItemTouchHelper` 等のプラットフォーム標準機構を第一候補にする。
+3. 状態は「DB → 単一 Flow → 表示」の一方向。楽観二重書き・one-shot シードのような競合源を設けない。
+4. 順序モデル等のロジックは純 Kotlin に切り出し、単体テストを実装より先に書く。
+5. 統合の関門は「コンパイル成功」ではなく「受け入れ条件の実機確認」。

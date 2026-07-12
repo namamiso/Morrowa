@@ -109,9 +109,6 @@ fun AppDrawerFoldersPreference(
         onDeleteFolder = {
             viewModel.deleteFolder(it.id)
         },
-        onReorderFolders = { newFolderIds ->
-            viewModel.reorderFolders(newFolderIds)
-        },
     )
 }
 
@@ -122,7 +119,6 @@ fun AppDrawerFoldersPreference(
     onEditFolderItems: (Int) -> Unit,
     onRenameFolder: (FolderInfo, String) -> Unit,
     onDeleteFolder: (FolderInfo) -> Unit,
-    onReorderFolders: (List<Int>) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val bottomSheetHandler = bottomSheetHandler
@@ -208,16 +204,11 @@ fun AppDrawerFoldersPreference(
                 onOrderChange = { folders ->
                     val newOrder = folders.map { it.id }
 
-                    // Morrowa §10.38.1 G-2: the unified DrawerOrder is now the source of truth for
-                    // folder placement in the App Drawer. The legacy drawerListOrder pref is still
-                    // written here only as the pre-seed / not-all-ranked fallback ordering used by
-                    // LawnchairAlphabeticalAppsList.orderedFolderEntries.
                     folderOrderAdapter.onChange(
                         FolderOrderUtils.intListToString(
                             newOrder,
                         ),
                     )
-                    onReorderFolders(newOrder)
                     sortedDisplayList = folders
                 },
             ) { folderInfo, _, _, onDraggingChange ->

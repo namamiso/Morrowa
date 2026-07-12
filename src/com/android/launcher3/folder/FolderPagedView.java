@@ -265,13 +265,6 @@ public class FolderPagedView extends PagedView<PageIndicatorDots> implements Cli
         }
 
         icon.setOnClickListener(mFolder.mActivityContext.getItemOnClickListener());
-        // Morrowa §10.38.4 J2: in-folder icons long-press through the Folder itself
-        // (Folder.onLongClick -> startDrag -> Workspace.beginDragShared ->
-        // BubbleTextView.startLongPressAction -> PopupContainerWithArrow.showForIcon). That path has
-        // NO NORMAL/ALL_APPS state gate, so an *App Drawer* folder (opened while the launcher is in
-        // ALL_APPS) shows the exact same popup as a Home folder with no extra wiring. The
-        // §10.38.4 assumption that this routed through ItemLongClickListener.onWorkspaceItemLongClick
-        // (NORMAL-gated) was incorrect -- both folder types use this same listener.
         icon.setOnLongClickListener(mFolder);
         icon.setOnFocusChangeListener(mFocusIndicatorHelper);
 

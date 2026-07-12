@@ -7,10 +7,6 @@ import androidx.room.TypeConverters
 import androidx.room.migration.Migration
 import androidx.sqlite.db.SimpleSQLiteQuery
 import androidx.sqlite.db.SupportSQLiteDatabase
-import app.lawnchair.data.appdrawer.DrawerAppOrderEntity
-import app.lawnchair.data.appdrawer.DrawerOrderEntity
-import app.lawnchair.data.appdrawer.service.DrawerAppOrderDao
-import app.lawnchair.data.appdrawer.service.DrawerOrderDao
 import app.lawnchair.data.folder.FolderInfoEntity
 import app.lawnchair.data.folder.FolderItemEntity
 import app.lawnchair.data.folder.service.FolderDao
@@ -21,25 +17,13 @@ import app.lawnchair.data.wallpaper.service.WallpaperDao
 import app.lawnchair.util.MainThreadInitializedObject
 import kotlinx.coroutines.runBlocking
 
-@Database(
-    entities = [
-        IconOverride::class,
-        Wallpaper::class,
-        FolderInfoEntity::class,
-        FolderItemEntity::class,
-        DrawerAppOrderEntity::class,
-        DrawerOrderEntity::class,
-    ],
-    version = 5,
-)
+@Database(entities = [IconOverride::class, Wallpaper::class, FolderInfoEntity::class, FolderItemEntity::class], version = 3)
 @TypeConverters(Converters::class)
 abstract class AppDatabase : RoomDatabase() {
 
     abstract fun iconOverrideDao(): IconOverrideDao
     abstract fun wallpaperDao(): WallpaperDao
     abstract fun folderDao(): FolderDao
-    abstract fun drawerAppOrderDao(): DrawerAppOrderDao
-    abstract fun drawerOrderDao(): DrawerOrderDao
 
     suspend fun checkpoint() {
         iconOverrideDao().checkpoint(SimpleSQLiteQuery("pragma wal_checkpoint(full)"))
@@ -105,45 +89,12 @@ abstract class AppDatabase : RoomDatabase() {
             }
         }
 
-        val MIGRATION_3_4 = object : Migration(3, 4) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
-                    """
-            CREATE TABLE IF NOT EXISTS `DrawerAppOrder` (
-                `componentKey` TEXT NOT NULL PRIMARY KEY,
-                `rank` INTEGER NOT NULL
-            )
-                    """.trimIndent(),
-                )
-            }
-        }
-
-        // Morrowa §10.38.1 G-1 / §10.38.5 risk 3: v4->v5 adds the unified DrawerOrder table only.
-        // A Migration can't hold a Context and so can't read the drawerListOrder pref, meaning SQL
-        // alone can't reproduce the current display order -- so this creates an empty table and the
-        // actual data migration is a runtime seed in LawnchairAlphabeticalAppsList (writes the
-        // current folders-then-apps display order at rank 0..N on first render), keeping the
-        // post-upgrade appearance unchanged.
-        val MIGRATION_4_5 = object : Migration(4, 5) {
-            override fun migrate(database: SupportSQLiteDatabase) {
-                database.execSQL(
-                    """
-            CREATE TABLE IF NOT EXISTS `DrawerOrder` (
-                `key` TEXT NOT NULL PRIMARY KEY,
-                `rank` INTEGER NOT NULL
-            )
-                    """.trimIndent(),
-                )
-            }
-        }
-
         val INSTANCE = MainThreadInitializedObject { context ->
             Room.databaseBuilder(
                 context,
                 AppDatabase::class.java,
                 "preferences",
-            ).addMigrations(MIGRATION_1_3).addMigrations(MIGRATION_2_3).addMigrations(MIGRATION_3_4)
-                .addMigrations(MIGRATION_4_5).build()
+            ).addMigrations(MIGRATION_1_3).addMigrations(MIGRATION_2_3).build()
         }
     }
 }

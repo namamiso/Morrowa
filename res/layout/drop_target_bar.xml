@@ -42,15 +42,4 @@
         android:gravity="center"
         android:text="@string/uninstall_drop_target_label" />
 
-    <!-- Add to home screen target: only visible for drags originating in the App Drawer -->
-    <com.android.launcher3.AddToHomescreenDropTarget
-        android:id="@+id/add_to_homescreen_target_text"
-        style="@style/DropTargetButton"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:layout_gravity="center"
-        android:gravity="center"
-        android:visibility="gone"
-        android:text="@string/action_add_to_workspace" />
-
 </com.android.launcher3.DropTargetBar>

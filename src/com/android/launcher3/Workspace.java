@@ -81,7 +81,6 @@ import androidx.core.view.ViewCompat;
 import com.android.app.animation.Interpolators;
 import com.android.launcher3.accessibility.AccessibleDragListenerAdapter;
 import com.android.launcher3.accessibility.WorkspaceAccessibilityHelper;
-import com.android.launcher3.allapps.ActivityAllAppsContainerView;
 import com.android.launcher3.anim.PendingAnimation;
 import com.android.launcher3.apppairs.AppPairIcon;
 import com.android.launcher3.celllayout.CellInfo;
@@ -533,12 +532,7 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         // action for move/add to homescreen.
         // When a accessible drag is started by the folder, we only allow rearranging withing the
         // folder.
-        // Morrowa: App Drawer-origin drags never land on the Workspace (ALL_APPS rejects the
-        // drop, see workspaceIconsCanBeDragged()), so there's no need to pre-add an empty page.
-        // Same for drags inside an App Drawer folder (§10.38.4 J1: drag-out is a dead-end).
-        boolean addNewPage = !(options.isAccessibleDrag && dragObject.dragSource != this)
-                && !(dragObject.dragSource instanceof ActivityAllAppsContainerView)
-                && !isAppDrawerFolderDrag(dragObject);
+        boolean addNewPage = !(options.isAccessibleDrag && dragObject.dragSource != this);
         if (addNewPage) {
             mDeferRemoveExtraEmptyScreen = false;
             addExtraEmptyScreenOnDrag(dragObject);
@@ -564,30 +558,12 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         if (mAccessibilityDragListener != null) {
             mAccessibilityDragListener.onDragStart(dragObject, options);
         }
-        // Morrowa: App Drawer drags stay in ALL_APPS so the drawer remains open while
-        // dragging. Leaving ALL_APPS mid-drag (to SPRING_LOADED or any other state) triggers
-        // Launcher#onStateSetEnd's getAppsView().reset(false) and breaks the many
-        // "drawer open == ALL_APPS" identity checks across the codebase. The same holds for a
-        // drag inside an opened App Drawer folder (§10.38.4 J1), whose dragSource is the Folder.
-        if (dragObject.dragSource instanceof ActivityAllAppsContainerView
-                || isAppDrawerFolderDrag(dragObject)) {
-            // Intentionally no state change.
-        } else if (!mLauncher.isInState(EDIT_MODE)) {
+        if (!mLauncher.isInState(EDIT_MODE)) {
             mLauncher.getStateManager().goToState(SPRING_LOADED);
         }
         mStatsLogManager.logger().withItemInfo(dragObject.dragInfo)
                 .withInstanceId(dragObject.logInstanceId)
                 .log(LauncherEvent.LAUNCHER_ITEM_DRAG_STARTED);
-    }
-
-    /**
-     * Morrowa §10.38.4 J1: whether [dragObject] is a drag that originated inside an opened App
-     * Drawer folder (its dragSource is the Folder itself). Such drags must behave like App
-     * Drawer-origin drags: no state change away from ALL_APPS, no extra empty Workspace page.
-     */
-    private static boolean isAppDrawerFolderDrag(DragObject dragObject) {
-        return dragObject.dragSource instanceof Folder
-                && ((Folder) dragObject.dragSource).isInAppDrawer();
     }
 
     private boolean isTwoPanelEnabled() {

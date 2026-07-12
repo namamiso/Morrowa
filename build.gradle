@@ -332,6 +332,14 @@ android {
             kotlin.directories.addAll('quickstep/src', 'quickstep/dagger', 'quickstep/recents_ui_overrides/src', 'quickstep/src_protolog')
             manifest.srcFile "quickstep/AndroidManifest.xml"
         }
+
+        // Morrowa: JVM unit tests (pure-Kotlin logic only; see
+        // docs/Morrowa_AppDrawer_編集モードv2_要件設計.md §3.3). Lives outside 'src'/'lawnchair/src'
+        // so test sources never leak into the main compilation.
+        test {
+            java.srcDirs = ['lawnchair/tests/unit']
+            kotlin.directories.addAll('lawnchair/tests/unit')
+        }
     }
 }
 
@@ -360,6 +368,9 @@ composeCompiler {
 addFrameworkJar('framework-16.jar')
 
 dependencies {
+    // Morrowa: JVM unit tests for pure-Kotlin logic (DrawerOrderModel etc.)
+    testImplementation libs.junit
+
     implementation projects.iconloaderlib
     implementation projects.searchuilib
     implementation projects.animationlib

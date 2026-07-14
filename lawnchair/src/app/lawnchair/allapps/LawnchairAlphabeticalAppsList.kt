@@ -6,6 +6,9 @@ import androidx.activity.ComponentActivity
 import androidx.lifecycle.DefaultLifecycleObserver
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.lifecycleScope
+import app.lawnchair.allapps.edit.DrawerOrderKeys
+import app.lawnchair.allapps.edit.DrawerOrderMerge
+import app.lawnchair.data.AppDatabase
 import app.lawnchair.data.folder.model.FolderOrderUtils
 import app.lawnchair.data.folder.model.FolderViewModel
 import app.lawnchair.launcher
@@ -24,6 +27,8 @@ import com.android.launcher3.model.data.ItemInfo
 import com.android.launcher3.views.ActivityContext
 import com.patrykmichalik.opto.core.onEach
 import java.util.function.Predicate
+import kotlinx.coroutines.flow.launchIn
+import kotlinx.coroutines.flow.onEach as onEachFlow
 
 @Suppress("SYNTHETIC_PROPERTY_WITHOUT_JAVA_ORIGIN")
 class LawnchairAlphabeticalAppsList<T>(
@@ -46,6 +51,12 @@ class LawnchairAlphabeticalAppsList<T>(
     private var folderList = mutableListOf<FolderInfo>()
     private val filteredList = mutableListOf<AppInfo>()
 
+    // Morrowa v2 P1 (docs/Morrowa_AppDrawer_編集モードv2_要件設計.md §3.4): the persisted unified
+    // App Drawer order, namespaced key -> rank. Empty until the user commits their first edit
+    // session (P2); while empty the drawer renders the legacy layout unchanged. Read-only here —
+    // the only writer is the edit session's commit.
+    private var drawerOrder: Map<String, Int> = emptyMap()
+
     init {
         context.launcher.deviceProfile.inv.addOnChangeListener(this)
         (context as? LifecycleOwner)?.lifecycle?.addObserver(this)
@@ -58,6 +69,18 @@ class LawnchairAlphabeticalAppsList<T>(
             Log.w(TAG, "Failed to initialize hidden apps", t)
         }
         observeFolders()
+        observeDrawerOrder()
+    }
+
+    // Morrowa v2 P1: single direction DB -> Flow -> display (§10.42 原則3). No in-memory writes
+    // besides this observer.
+    private fun observeDrawerOrder() {
+        AppDatabase.INSTANCE.get(context).drawerOrderDao().getAll()
+            .onEachFlow { entities ->
+                drawerOrder = entities.associate { it.key to it.rank }
+                onAppsUpdated()
+            }
+            .launchIn(context.launcher.lifecycleScope)
     }
 
     override fun onDestroy(owner: LifecycleOwner) {
@@ -114,7 +137,9 @@ class LawnchairAlphabeticalAppsList<T>(
                 }
                 position++
             }
-        } else {
+        } else if (drawerOrder.isEmpty()) {
+            // Morrowa v2 P1: no committed edit yet -> the legacy layout, code path unchanged
+            // (folders as a top block, then apps alphabetical).
             getSortedFolders().forEach { folder ->
                 val folderApps = folder.getContents().mapNotNull { app ->
                     appsStore.getApp(app.componentKey)
@@ -132,6 +157,55 @@ class LawnchairAlphabeticalAppsList<T>(
             }
             val remainingApps = appList.filterNot { app -> filteredList.contains(app) && prefs.folderApps.get() }
             position = super.addAppsWithSections(remainingApps, position)
+        } else {
+            // Morrowa v2 P1 (§3.4): unified order — a single walk over the rank-merged sequence.
+            // Folder resolution and the member-hiding rule are identical to the legacy branch;
+            // only the ordering differs (DrawerOrderMerge, pure logic + unit tests).
+            val folderInfos = getSortedFolders().mapNotNull { folder ->
+                val folderApps = folder.getContents().mapNotNull { app ->
+                    appsStore.getApp(app.componentKey)
+                }
+                if (folderApps.size <= 1) return@mapNotNull null
+                FolderInfo().apply {
+                    id = folder.id
+                    title = folder.title
+                    folderApps.forEach { app ->
+                        add(app)
+                        if (prefs.folderApps.get()) filteredList.add(app)
+                    }
+                }
+            }
+            val apps = appList.mapNotNull { it }
+                .filterNot { app -> filteredList.contains(app) && prefs.folderApps.get() }
+
+            val folderByKey = folderInfos.associateBy { DrawerOrderKeys.folder(it.id) }
+            val appByKey = apps.associateBy { DrawerOrderKeys.app(it.toComponentKey().toString()) }
+            val merged = DrawerOrderMerge.mergedKeys(
+                ranks = drawerOrder,
+                folderKeys = folderInfos.map { DrawerOrderKeys.folder(it.id) },
+                appKeys = apps.map { DrawerOrderKeys.app(it.toComponentKey().toString()) },
+            )
+
+            var lastSectionName: String? = null
+            merged.forEach { key ->
+                folderByKey[key]?.let { folderInfo ->
+                    mAdapterItems.add(AdapterItem.asFolder(folderInfo))
+                    position++
+                    return@forEach
+                }
+                val info = appByKey[key] ?: return@forEach
+                mAdapterItems.add(AdapterItem.asApp(info))
+                // Reproduce the base fast-scroll sectioning (AlphabeticalAppsList#addAppsWithSections):
+                // a new section whenever the letter changes across consecutive app items.
+                val sectionName = info.sectionName
+                if (sectionName != lastSectionName) {
+                    lastSectionName = sectionName
+                    fastScrollerSections.add(
+                        AlphabeticalAppsList.FastScrollSectionInfo(sectionName, position),
+                    )
+                }
+                position++
+            }
         }
 
         return position

@@ -103,6 +103,36 @@ class LawnchairShortcut {
                 }
                 TransparentToggle(activity, itemInfo, originalView)
             }
+
+        // Morrowa v2 P2 (docs/Morrowa_AppDrawer_編集モードv2_要件設計.md §R1): the edit-mode entry
+        // point. Only on App Drawer icon popups — a drawer icon carries a model AppInfo and the
+        // launcher is in ALL_APPS — and only in manual drawer-folder mode.
+        val EDIT_DRAWER: SystemShortcut.Factory<LawnchairLauncher> =
+            SystemShortcut.Factory { activity, itemInfo, originalView ->
+                if (itemInfo !is ModelAppInfo) return@Factory null
+                if (!activity.isInState(LauncherState.ALL_APPS)) return@Factory null
+                if (!app.lawnchair.preferences.PreferenceManager.getInstance(activity).drawerList.get()) {
+                    return@Factory null
+                }
+                EditDrawer(activity, itemInfo, originalView)
+            }
+    }
+
+    class EditDrawer(
+        private val launcher: LawnchairLauncher,
+        itemInfo: ItemInfo,
+        originalView: View,
+    ) : SystemShortcut<LawnchairLauncher>(
+        R.drawable.ic_edit,
+        R.string.morrowa_drawer_edit,
+        launcher,
+        itemInfo,
+        originalView,
+    ) {
+        override fun onClick(view: View) {
+            AbstractFloatingView.closeAllOpenViews(launcher)
+            app.lawnchair.allapps.edit.DrawerEditOverlay.show(launcher)
+        }
     }
 
     class TransparentToggle(

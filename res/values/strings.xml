@@ -161,6 +161,14 @@
     <string name="widget_cell_tap_to_hide_add_button_label">Hide add button</string>
     <string name="morrowa_transparent_item_enable">Make transparent</string>
     <string name="morrowa_transparent_item_disable">Show icon</string>
+    <!-- Morrowa App Drawer edit mode v2 (docs/Morrowa_AppDrawer_編集モードv2_要件設計.md) -->
+    <string name="morrowa_drawer_edit">Edit drawer</string>
+    <string name="morrowa_drawer_edit_title">Edit App Drawer</string>
+    <string name="morrowa_drawer_edit_done">Done</string>
+    <string name="morrowa_drawer_edit_cancel">Cancel</string>
+    <string name="morrowa_drawer_edit_discard_title">Discard changes?</string>
+    <string name="morrowa_drawer_edit_discard_message">Your reordering has not been saved.</string>
+    <string name="morrowa_drawer_edit_discard">Discard</string>
     <!-- Text on the button that adds a widget to the home screen. [CHAR_LIMIT=15] -->
     <string name="widget_add_button_label">Add</string>
     <!-- Accessibility content description for the button that adds a widget to the home screen. The

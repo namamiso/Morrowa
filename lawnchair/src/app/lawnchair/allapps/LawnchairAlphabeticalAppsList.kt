@@ -146,6 +146,9 @@ class LawnchairAlphabeticalAppsList<T>(
                 }
                 if (folderApps.size > 1) {
                     val folderInfo = FolderInfo()
+                    // Morrowa v2 P2: carry the Room id so DrawerEditOverlay's snapshot can key the
+                    // folder ("folder:<id>"). Display behavior is unchanged.
+                    folderInfo.id = folder.id
                     folderInfo.title = folder.title
                     mAdapterItems.add(AdapterItem.asFolder(folderInfo))
                     folderApps.forEach { app ->

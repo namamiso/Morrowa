@@ -308,7 +308,8 @@ class LawnchairLauncher : QuickstepLauncher() {
         Stream.concat(
             Stream.of(LawnchairShortcut.UNINSTALL, LawnchairShortcut.CUSTOMIZE),
             Stream.concat(
-                Stream.of(LawnchairShortcut.TRANSPARENT_TOGGLE),
+                // Morrowa v2 P2: App Drawer edit mode entry (gated to drawer popups in the factory).
+                Stream.of(LawnchairShortcut.TRANSPARENT_TOGGLE, LawnchairShortcut.EDIT_DRAWER),
                 if (LawnchairApp.isRecentsEnabled) {
                     Stream.of(LawnchairShortcut.PAUSE_APPS)
                 } else {

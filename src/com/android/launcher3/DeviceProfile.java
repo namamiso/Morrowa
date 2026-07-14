@@ -1705,9 +1705,16 @@ public class DeviceProfile {
             // Pad the bottom of the workspace with hotseat bar
             // and leave a bit of space in case a widget go all the way down
             boolean isHotseatEnabled = mIsHotseatEnabled && hotseatBarSizePx > 0;
+            // Morrowa (docs/prds/remove-hotseat-qsb.md): with the hotseat disabled the bottom
+            // padding must be 0, not mInsets.bottom. The grid height is derived from
+            // availableHeightPx (WindowBounds.availableSize), which ALREADY excludes the bottom
+            // system inset — reserving mInsets.bottom here counted it twice and left an
+            // inset-height dead band above the nav/gesture area (the AOSP hotseat branch
+            // subtracts mInsets.bottom for the same reason). The nav area itself stays clear
+            // through the availableHeightPx term; nothing draws beneath it.
             int paddingBottom = isHotseatEnabled
                     ? hotseatBarSizePx + workspaceBottomPadding - mInsets.bottom
-                    : mInsets.bottom;
+                    : 0;
             if (isHotseatEnabled && !mIsResponsiveGrid) {
                 paddingBottom +=
                         workspacePageIndicatorHeight - mWorkspacePageIndicatorOverlapWorkspace;

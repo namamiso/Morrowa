@@ -82,8 +82,12 @@ paddingBottom = hotseatBarSizePx              // → 0（Step 3 で消える）
 - `workspacePageIndicatorHeight` も `!isHotseatEnabled` のとき bottom padding に加算しない
   （Morrowa 仕様でページインジケータは非表示のため）
 
-> **注意**: navigation bar や gesture area の inset（`mInsets.bottom`）は除去しないこと。
-> システム UI と重ならないよう、`mInsets.bottom` は引き続き考慮する。
+> **注意（2026-07-14 改訂）**: navigation bar や gesture area との重なり回避は
+> `availableHeightPx`（`WindowBounds.availableSize` = 画面高さ − inset）が既に担っている。
+> 当初の「`workspacePadding.bottom = mInsets.bottom` を確保する」修正（`7a9ee72639`）は
+> **inset の二重計上**となり、ナビ領域のさらに上に inset と同じ高さの死に帯を生んでいた
+> （実機スクショで確認）。正しくは hotseat 無効時 `paddingBottom = 0`。
+> これでグリッド最下段はナビ/ジェスチャー領域の直上まで届き、かつ領域の下には潜らない。
 
 ---
 
@@ -154,6 +158,6 @@ Workspace CellLayout が下部まで正しく広がった後、以下を検証�
 | リスク | 対策 |
 |---|---|
 | `getHotseat()` を前提とするコードが壊れる | Candidate A で Hotseat オブジェクト自体は残す |
-| bottom padding 除去でナビゲーションバーと重なる | `mInsets.bottom` は除去しない |
+| bottom padding 除去でナビゲーションバーと重なる | `availableHeightPx` が inset を既に除外しているため padding 0 でも重ならない（padding に `mInsets.bottom` を足すと二重計上で死に帯が出る — 2026-07-14 修正済み） |
 | +2 行で端末によっては cell が小さすぎる | 実機確認後に調整。`workspaceRows` はユーザー設定でも変更可能 |
 | drag/drop が旧 Hotseat 座標で誤動作 | Step 7 の検証で確認。問題があれば `shouldUseHotseatAsDropLayout()` に明示条件を追加 |

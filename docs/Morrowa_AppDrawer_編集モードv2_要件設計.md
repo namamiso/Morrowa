@@ -87,8 +87,9 @@ Android 依存ゼロ。実装前に上記全操作の単体テストを書く(�
 - fast-scroll セクションは v1 G1 と同じ「連続アプリ項目の頭文字変化で区切る」方式。
 
 ### 3.5 AOSP 側フック(ガード付き・最小)
-1. アイコン長押しポップアップへの「編集」項目追加(ドロワー内アイコン限定のガード付き。Lawnchair のポップアップカスタマイズ機構が使えるならそちら優先)
-2. オーバーレイ表示中の背面タッチ遮断(`AbstractFloatingView` の標準機構で足りる見込み)
+1. アイコン長押しポップアップへの「編集」項目追加 → **実績: AOSP 変更ゼロ**(`LawnchairLauncher.getSupportedShortcuts` + `LawnchairShortcut.EDIT_DRAWER` で Lawnchair 側に閉じた)
+2. オーバーレイ表示中の背面タッチ遮断 → **実績: AOSP 変更ゼロ**(`AbstractFloatingView` の標準機構で充足)
+3. **(P4 実機バグ修正で追加)** `BaseAllAppsAdapter.AdapterItem` の `isSameAs`/`isContentSame` に `VIEW_TYPE_FOLDER` 分岐を追加(LC-Feature フォルダ領域)。素の実装は「フォルダ項目は常に同一・内容同一」でありDiffUtil が**位置の変わらないフォルダを絶対に再バインドしない**ため、フォルダ内編集(並び替え・除外・リネーム)がコミットされてもビューだけ旧内容のままになるバグがあった(編集画面を開き直すとデータは新しい=データ層は正常、の症状で発覚)。識別=Room id(双方 >0 時)または title、内容=title+メンバー列(targetComponent+user)。
 
 上記以外に AOSP ファイルへの変更が必要になった場合は、実装を止めて本ドキュメントに追記・判断を仰ぐ(§10.42 原則1)。
 

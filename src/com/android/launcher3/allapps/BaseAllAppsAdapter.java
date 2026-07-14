@@ -46,7 +46,11 @@ import com.android.launcher3.allapps.search.SearchAdapterProvider;
 import com.android.launcher3.folder.FolderIcon;
 import com.android.launcher3.model.data.AppInfo;
 import com.android.launcher3.model.data.FolderInfo;
+import com.android.launcher3.model.data.ItemInfo;
 import com.android.launcher3.views.ActivityContext;
+
+import java.util.List;
+import java.util.Objects;
 
 /**
  * Adapter for all the apps.
@@ -152,7 +156,20 @@ public abstract class BaseAllAppsAdapter<T extends Context & ActivityContext> ex
          * Returns true if the items represent the same object
          */
         public boolean isSameAs(AdapterItem other) {
-            return (other.viewType == viewType) && (other.getClass() == getClass());
+            if ((other.viewType != viewType) || (other.getClass() != getClass())) {
+                return false;
+            }
+            // Morrowa v2 P4 fix (LC-Feature folder support): folder items need a real identity —
+            // the canonical Room id when both sides carry one, else the title. Without this,
+            // every folder item counts as "the same object" and an edited folder that kept its
+            // position is never rebound by DiffUtil.
+            if (viewType == VIEW_TYPE_FOLDER) {
+                if (folderInfo.id > 0 && other.folderInfo.id > 0) {
+                    return folderInfo.id == other.folderInfo.id;
+                }
+                return Objects.equals(folderInfo.title, other.folderInfo.title);
+            }
+            return true;
         }
 
         /**
@@ -160,7 +177,31 @@ public abstract class BaseAllAppsAdapter<T extends Context & ActivityContext> ex
          * as well. Returning true will prevent redrawing of thee item.
          */
         public boolean isContentSame(AdapterItem other) {
+            // Morrowa v2 P4 fix: a folder whose title or membership (order included) changed must
+            // redraw, so the FolderIcon rebinds with the fresh FolderInfo — otherwise opening it
+            // shows the pre-edit contents until the item happens to move.
+            if (viewType == VIEW_TYPE_FOLDER && other.viewType == VIEW_TYPE_FOLDER) {
+                return Objects.equals(folderInfo.title, other.folderInfo.title)
+                        && folderContentsEqual(folderInfo, other.folderInfo);
+            }
             return itemInfo == null && other.itemInfo == null;
+        }
+
+        private static boolean folderContentsEqual(FolderInfo a, FolderInfo b) {
+            List<ItemInfo> contentsA = a.getContents();
+            List<ItemInfo> contentsB = b.getContents();
+            if (contentsA.size() != contentsB.size()) {
+                return false;
+            }
+            for (int i = 0; i < contentsA.size(); i++) {
+                ItemInfo itemA = contentsA.get(i);
+                ItemInfo itemB = contentsB.get(i);
+                if (!Objects.equals(itemA.getTargetComponent(), itemB.getTargetComponent())
+                        || !Objects.equals(itemA.user, itemB.user)) {
+                    return false;
+                }
+            }
+            return true;
         }
 
         @Nullable

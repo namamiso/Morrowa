@@ -196,6 +196,34 @@ class DrawerOrderModelTest {
         assertSame(base, base.removeFromFolder(0, "a"))
     }
 
+    // ---- removeAllFromFolder ----
+
+    @Test
+    fun `removeAllFromFolder removes several members`() {
+        val m = DrawerOrderModel(
+            listOf(app("a"), folder(1, "F1", "w", "x", "y", "z"), app("c")),
+        ).removeAllFromFolder(1, listOf("x", "z"))
+        assertEquals(
+            listOf(app("a"), folder(1, "F1", "w", "y"), app("z"), app("x"), app("c")),
+            m.entries,
+        )
+    }
+
+    @Test
+    fun `removeAllFromFolder stops safely after a mid-way auto-disband`() {
+        // Removing x leaves (y) -> auto-disband replaces the folder with plain apps; the removal
+        // of y must then be skipped, not applied to whatever now occupies index 2.
+        val m = model().removeAllFromFolder(2, listOf("x", "y"))
+        assertEquals(listOf(app("a"), app("b"), app("y"), app("x"), app("c")), m.entries)
+    }
+
+    @Test
+    fun `removeAllFromFolder skips unknown keys and no-ops on non-folder`() {
+        val base = model()
+        assertEquals(base.entries, base.removeAllFromFolder(2, listOf("zzz")).entries)
+        assertEquals(base.entries, base.removeAllFromFolder(0, listOf("x")).entries)
+    }
+
     // ---- renameFolder ----
 
     @Test

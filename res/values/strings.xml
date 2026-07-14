@@ -174,6 +174,10 @@
     <string name="morrowa_drawer_edit_disband">Disband folder</string>
     <string name="morrowa_drawer_edit_folder_name">Folder name</string>
     <string name="morrowa_drawer_edit_default_folder_name">Folder</string>
+    <string name="morrowa_drawer_edit_folder">Edit folder</string>
+    <string name="morrowa_drawer_edit_remove_from_folder">Remove from folder</string>
+    <string name="morrowa_drawer_edit_rename">Rename</string>
+    <string name="morrowa_drawer_edit_back">Back</string>
     <!-- Text on the button that adds a widget to the home screen. [CHAR_LIMIT=15] -->
     <string name="widget_add_button_label">Add</string>
     <!-- Accessibility content description for the button that adds a widget to the home screen. The

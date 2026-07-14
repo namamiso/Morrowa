@@ -140,6 +140,22 @@ data class DrawerOrderModel(val entries: List<DrawerEditEntry>) {
         return DrawerOrderModel(result)
     }
 
+    /**
+     * Morrowa v2 P4: removes several members from the folder at [folderIndex], applying
+     * [removeFromFolder] per key. Stops early (keeping prior removals) if the folder auto-disbands
+     * mid-way — the entry at [folderIndex] is then no longer that folder, and blindly continuing
+     * would mutate whatever slid into its slot. Unknown keys are skipped.
+     */
+    fun removeAllFromFolder(folderIndex: Int, keys: Collection<String>): DrawerOrderModel {
+        var model = this
+        for (key in keys) {
+            val folder = model.entries.getOrNull(folderIndex) as? DrawerEditEntry.Folder ?: break
+            if (key !in folder.members) continue
+            model = model.removeFromFolder(folderIndex, key)
+        }
+        return model
+    }
+
     /** Renames the folder at [folderIndex] to [name]. No-op if it isn't a folder. */
     fun renameFolder(folderIndex: Int, name: String): DrawerOrderModel {
         val folder = folderAt(folderIndex) ?: return this

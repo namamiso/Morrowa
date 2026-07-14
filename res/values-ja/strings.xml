@@ -241,4 +241,8 @@
     <string name="morrowa_drawer_edit_disband">フォルダを解除</string>
     <string name="morrowa_drawer_edit_folder_name">フォルダ名</string>
     <string name="morrowa_drawer_edit_default_folder_name">フォルダ</string>
+    <string name="morrowa_drawer_edit_folder">フォルダを編集</string>
+    <string name="morrowa_drawer_edit_remove_from_folder">フォルダから出す</string>
+    <string name="morrowa_drawer_edit_rename">名前を変更</string>
+    <string name="morrowa_drawer_edit_back">戻る</string>
 </resources>

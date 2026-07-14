@@ -60,6 +60,18 @@ class DrawerEditOverlay(
     private lateinit var groupAction: TextView
     private lateinit var addToFolderAction: TextView
     private lateinit var disbandAction: TextView
+    private lateinit var editFolderAction: TextView
+
+    // Morrowa v2 P4 (§R3): the folder-edit sub view. >= 0 while editing the folder at that entry
+    // index (stable across in-folder ops: reorder/rename/remove keep the folder's slot; an
+    // auto-disband is detected in refreshFolderView and pops back to the main view). UI-only —
+    // reopening after a forced close starts at the main view.
+    private var editingFolderIndex: Int = -1
+    private val memberSelection = linkedSetOf<String>()
+    private val memberAdapter = MembersAdapter()
+    private lateinit var folderHeader: LinearLayout
+    private lateinit var folderTitleView: TextView
+    private lateinit var removeAction: TextView
 
     init {
         orientation = VERTICAL
@@ -106,6 +118,41 @@ class DrawerEditOverlay(
         header.addView(title, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         header.addView(done, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
         addView(header, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+
+        // Morrowa v2 P4: second header row, visible only in the folder-edit sub view. The main
+        // header (Done/Cancel) stays visible — committing/cancelling from inside a folder is fine,
+        // the commit plan always covers the whole draft.
+        folderHeader = LinearLayout(launcher).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER_VERTICAL
+            setPadding(pad, 0, pad, pad / 2)
+            visibility = GONE
+        }
+        val back = TextView(launcher).apply {
+            text = "←"
+            contentDescription = resources.getText(R.string.morrowa_drawer_edit_back)
+            setTextColor(textColor)
+            textSize = 18f
+            setPadding(pad / 2, pad / 2, pad, pad / 2)
+            setOnClickListener { exitFolderView() }
+        }
+        folderTitleView = TextView(launcher).apply {
+            setTextColor(textColor)
+            textSize = 16f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+        }
+        val rename = TextView(launcher).apply {
+            text = resources.getText(R.string.morrowa_drawer_edit_rename)
+            setTextColor(Themes.getColorAccent(launcher))
+            textSize = 14f
+            setPadding(pad, pad / 2, pad / 2, pad / 2)
+            setOnClickListener { promptRenameFolder() }
+        }
+        folderHeader.addView(back, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        folderHeader.addView(folderTitleView, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        folderHeader.addView(rename, LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        addView(folderHeader, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
     }
 
     private fun buildGrid() {
@@ -143,7 +190,9 @@ class DrawerEditOverlay(
         groupAction = action(R.string.morrowa_drawer_edit_group) { promptGroupIntoFolder() }
         addToFolderAction = action(R.string.morrowa_drawer_edit_add_to_folder) { promptAddToFolder() }
         disbandAction = action(R.string.morrowa_drawer_edit_disband) { disbandSelected() }
-        listOf(groupAction, addToFolderAction, disbandAction).forEach { view ->
+        editFolderAction = action(R.string.morrowa_drawer_edit_folder) { editSelectedFolder() }
+        removeAction = action(R.string.morrowa_drawer_edit_remove_from_folder) { removeSelectedMembers() }
+        listOf(groupAction, addToFolderAction, editFolderAction, disbandAction, removeAction).forEach { view ->
             actionBar.addView(view, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
         }
         addView(actionBar, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
@@ -161,6 +210,17 @@ class DrawerEditOverlay(
     }
 
     private fun updateActionBar() {
+        // Morrowa v2 P4: folder-edit sub view has exactly one action (remove selected members).
+        if (editingFolderIndex >= 0) {
+            groupAction.visibility = GONE
+            addToFolderAction.visibility = GONE
+            disbandAction.visibility = GONE
+            editFolderAction.visibility = GONE
+            removeAction.visibility = if (memberSelection.isNotEmpty()) VISIBLE else GONE
+            actionBar.visibility = removeAction.visibility
+            return
+        }
+        removeAction.visibility = GONE
         val apps = selection.filterIsInstance<DrawerEditEntry.App>()
         val folders = selection.filterIsInstance<DrawerEditEntry.Folder>()
         val appsOnly = apps.isNotEmpty() && folders.isEmpty()
@@ -168,16 +228,93 @@ class DrawerEditOverlay(
         // ネスト不可 (§R3): フォルダを含む選択に「まとめる」「追加」は出さない。
         groupAction.visibility = if (appsOnly && apps.size >= 2) VISIBLE else GONE
         addToFolderAction.visibility = if (appsOnly && hasAnyFolder) VISIBLE else GONE
-        disbandAction.visibility = if (folders.size == 1 && apps.isEmpty()) VISIBLE else GONE
+        val singleFolder = folders.size == 1 && apps.isEmpty()
+        disbandAction.visibility = if (singleFolder) VISIBLE else GONE
+        editFolderAction.visibility = if (singleFolder) VISIBLE else GONE
         actionBar.visibility = if (
-            groupAction.visibility == VISIBLE ||
-            addToFolderAction.visibility == VISIBLE ||
-            disbandAction.visibility == VISIBLE
+            listOf(groupAction, addToFolderAction, editFolderAction, disbandAction)
+                .any { it.visibility == VISIBLE }
         ) {
             VISIBLE
         } else {
             GONE
         }
+    }
+
+    // ---- P4: folder-edit sub view (§R3) ----
+
+    private fun currentFolder(): DrawerEditEntry.Folder? =
+        entries().getOrNull(editingFolderIndex) as? DrawerEditEntry.Folder
+
+    private fun editSelectedFolder() {
+        val folder = selection.filterIsInstance<DrawerEditEntry.Folder>().singleOrNull() ?: return
+        val index = entries().indexOf(folder)
+        if (index < 0) return
+        enterFolderView(index)
+    }
+
+    private fun enterFolderView(index: Int) {
+        editingFolderIndex = index
+        memberSelection.clear()
+        selection.clear()
+        folderHeader.visibility = VISIBLE
+        folderTitleView.text = currentFolder()?.name
+        recyclerView.adapter = memberAdapter
+        updateActionBar()
+    }
+
+    private fun exitFolderView() {
+        editingFolderIndex = -1
+        memberSelection.clear()
+        folderHeader.visibility = GONE
+        recyclerView.adapter = adapter
+        adapter.notifyDataSetChanged()
+        updateActionBar()
+    }
+
+    /** Refreshes the sub view after a member op; pops back if the folder auto-disbanded (<2 members). */
+    private fun refreshFolderView() {
+        val folder = currentFolder()
+        if (folder == null) {
+            exitFolderView()
+            return
+        }
+        folderTitleView.text = folder.name
+        memberAdapter.notifyDataSetChanged()
+        updateActionBar()
+    }
+
+    private fun toggleMemberSelection(key: String, position: Int) {
+        if (!memberSelection.remove(key)) memberSelection.add(key)
+        memberAdapter.notifyItemChanged(position)
+        updateActionBar()
+    }
+
+    private fun removeSelectedMembers() {
+        val keys = memberSelection.toList()
+        if (keys.isEmpty()) return
+        DrawerEditSession.update { it.removeAllFromFolder(editingFolderIndex, keys) }
+        memberSelection.clear()
+        refreshFolderView()
+    }
+
+    private fun promptRenameFolder() {
+        val folder = currentFolder() ?: return
+        val input = EditText(launcher).apply {
+            setText(folder.name)
+            isSingleLine = true
+        }
+        AlertDialog.Builder(launcher)
+            .setTitle(R.string.morrowa_drawer_edit_folder_name)
+            .setView(input)
+            .setNegativeButton(R.string.morrowa_drawer_edit_cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = input.text.toString().trim()
+                    .ifEmpty { resources.getString(R.string.morrowa_drawer_edit_default_folder_name) }
+                DrawerEditSession.update { it.renameFolder(editingFolderIndex, name) }
+                refreshFolderView()
+            }
+            .show()
     }
 
     private fun promptGroupIntoFolder() {
@@ -306,6 +443,11 @@ class DrawerEditOverlay(
     }
 
     override fun onBackInvoked() {
+        // Morrowa v2 P4: back first pops the folder-edit sub view, then asks about the session.
+        if (editingFolderIndex >= 0) {
+            exitFolderView()
+            return
+        }
         attemptCancel()
     }
 
@@ -343,37 +485,7 @@ class DrawerEditOverlay(
             is DrawerEditEntry.Folder -> ("folder:${entry.folderId}:${entry.name}").hashCode().toLong()
         }
 
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CellHolder {
-            val density = parent.resources.displayMetrics.density
-            val iconSize = launcher.deviceProfile.allAppsProfile.iconSizePx
-            val cell = LinearLayout(parent.context).apply {
-                orientation = VERTICAL
-                gravity = Gravity.CENTER_HORIZONTAL
-                val padV = (8 * density).toInt()
-                setPadding(0, padV, 0, padV)
-                layoutParams = RecyclerView.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT,
-                )
-            }
-            val iconFrame = FrameLayout(parent.context)
-            val iconView = ImageView(parent.context)
-            val folderView = FolderPreviewView(parent.context)
-            iconFrame.addView(iconView, FrameLayout.LayoutParams(iconSize, iconSize))
-            iconFrame.addView(folderView, FrameLayout.LayoutParams(iconSize, iconSize))
-            cell.addView(iconFrame, LinearLayout.LayoutParams(iconSize, iconSize))
-            val label = TextView(parent.context).apply {
-                setTextColor(Themes.getAttrColor(launcher, android.R.attr.textColorPrimary))
-                textSize = 12f
-                maxLines = 1
-                ellipsize = android.text.TextUtils.TruncateAt.END
-                gravity = Gravity.CENTER
-                val padTop = (4 * density).toInt()
-                setPadding((4 * density).toInt(), padTop, (4 * density).toInt(), 0)
-            }
-            cell.addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
-            return CellHolder(cell, iconView, folderView, label)
-        }
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CellHolder = createCellHolder(parent)
 
         override fun onBindViewHolder(holder: CellHolder, position: Int) {
             val entry = entries()[position]
@@ -410,6 +522,70 @@ class DrawerEditOverlay(
         setColor(ColorUtils.setAlphaComponent(Themes.getColorAccent(launcher), 60))
     }
 
+    /** Shared grid cell (icon or folder preview + label) used by both adapters. */
+    private fun createCellHolder(parent: ViewGroup): CellHolder {
+        val density = parent.resources.displayMetrics.density
+        val iconSize = launcher.deviceProfile.allAppsProfile.iconSizePx
+        val cell = LinearLayout(parent.context).apply {
+            orientation = VERTICAL
+            gravity = Gravity.CENTER_HORIZONTAL
+            val padV = (8 * density).toInt()
+            setPadding(0, padV, 0, padV)
+            layoutParams = RecyclerView.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+            )
+        }
+        val iconFrame = FrameLayout(parent.context)
+        val iconView = ImageView(parent.context)
+        val folderView = FolderPreviewView(parent.context)
+        iconFrame.addView(iconView, FrameLayout.LayoutParams(iconSize, iconSize))
+        iconFrame.addView(folderView, FrameLayout.LayoutParams(iconSize, iconSize))
+        cell.addView(iconFrame, LinearLayout.LayoutParams(iconSize, iconSize))
+        val label = TextView(parent.context).apply {
+            setTextColor(Themes.getAttrColor(launcher, android.R.attr.textColorPrimary))
+            textSize = 12f
+            maxLines = 1
+            ellipsize = android.text.TextUtils.TruncateAt.END
+            gravity = Gravity.CENTER
+            val padTop = (4 * density).toInt()
+            setPadding((4 * density).toInt(), padTop, (4 * density).toInt(), 0)
+        }
+        cell.addView(label, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+        return CellHolder(cell, iconView, folderView, label)
+    }
+
+    /** Morrowa v2 P4: renders the members of the folder being edited. */
+    private inner class MembersAdapter : RecyclerView.Adapter<CellHolder>() {
+
+        init {
+            setHasStableIds(true)
+        }
+
+        private fun members(): List<String> = currentFolder()?.members.orEmpty()
+
+        override fun getItemCount(): Int = members().size
+
+        override fun getItemId(position: Int): Long = members()[position].hashCode().toLong()
+
+        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CellHolder = createCellHolder(parent)
+
+        override fun onBindViewHolder(holder: CellHolder, position: Int) {
+            val key = members()[position]
+            val info = resolveApp(key)
+            holder.iconView.visibility = VISIBLE
+            holder.folderView.visibility = GONE
+            holder.iconView.setImageDrawable(info?.bitmap?.newIcon(launcher))
+            holder.label.text = info?.title ?: ""
+            holder.itemView.background = if (key in memberSelection) selectedBackground() else null
+            holder.itemView.setOnClickListener {
+                val pos = holder.bindingAdapterPosition
+                if (pos == RecyclerView.NO_POSITION) return@setOnClickListener
+                toggleMemberSelection(members()[pos], pos)
+            }
+        }
+    }
+
     private class CellHolder(
         root: View,
         val iconView: ImageView,
@@ -436,8 +612,15 @@ class DrawerEditOverlay(
             val from = viewHolder.bindingAdapterPosition
             val to = target.bindingAdapterPosition
             if (from == RecyclerView.NO_POSITION || to == RecyclerView.NO_POSITION) return false
-            DrawerEditSession.update { it.move(from, to) }
-            adapter.notifyItemMoved(from, to)
+            // Morrowa v2 P4: same gesture, two scopes — the main sequence or the open folder's
+            // members, depending on the sub-view state.
+            if (editingFolderIndex >= 0) {
+                DrawerEditSession.update { it.moveInFolder(editingFolderIndex, from, to) }
+                memberAdapter.notifyItemMoved(from, to)
+            } else {
+                DrawerEditSession.update { it.move(from, to) }
+                adapter.notifyItemMoved(from, to)
+            }
             return true
         }
 

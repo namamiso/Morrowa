@@ -236,4 +236,9 @@
     <string name="morrowa_drawer_edit_discard_title">変更を破棄しますか?</string>
     <string name="morrowa_drawer_edit_discard_message">並び替えは保存されていません。</string>
     <string name="morrowa_drawer_edit_discard">破棄</string>
+    <string name="morrowa_drawer_edit_group">フォルダにまとめる</string>
+    <string name="morrowa_drawer_edit_add_to_folder">フォルダへ追加</string>
+    <string name="morrowa_drawer_edit_disband">フォルダを解除</string>
+    <string name="morrowa_drawer_edit_folder_name">フォルダ名</string>
+    <string name="morrowa_drawer_edit_default_folder_name">フォルダ</string>
 </resources>

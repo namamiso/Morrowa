@@ -47,15 +47,31 @@ object DrawerEditSession {
     }
 
     /**
-     * The DrawerOrder keys of the current draft in display order, for the commit write
-     * (rank = index). Folders created in-session (folderId == null) can't exist until P3;
-     * they are skipped defensively rather than crashing the commit.
+     * Morrowa v2 P3: everything the commit has to write, computed as a pure diff of the draft
+     * against the session's initial snapshot. The executor (DrawerEditOverlay) runs it inside one
+     * Room transaction: create [CommitPlan.newFolders] (assigning real ids), delete
+     * [CommitPlan.deletedFolderIds], rewrite [CommitPlan.updatedFolders]' membership, then write
+     * the full order from [CommitPlan.orderedEntries] (rank = index). Returns null when no
+     * session is active.
      */
-    fun commitKeys(): List<String> = model?.entries.orEmpty().mapNotNull { entry ->
-        when (entry) {
-            is DrawerEditEntry.App -> DrawerOrderKeys.app(entry.key)
-            is DrawerEditEntry.Folder -> entry.folderId?.let { DrawerOrderKeys.folder(it) }
-        }
+    fun buildCommitPlan(): CommitPlan? {
+        val final = model?.entries ?: return null
+        val initialFolders = initial?.entries.orEmpty()
+            .filterIsInstance<DrawerEditEntry.Folder>()
+            .mapNotNull { f -> f.folderId?.let { it to f } }
+            .toMap()
+        val finalFolders = final.filterIsInstance<DrawerEditEntry.Folder>()
+        val finalIds = finalFolders.mapNotNull { it.folderId }.toSet()
+        return CommitPlan(
+            newFolders = finalFolders.filter { it.folderId == null },
+            deletedFolderIds = initialFolders.keys.filterNot { it in finalIds },
+            updatedFolders = finalFolders.filter { f ->
+                val id = f.folderId ?: return@filter false
+                val before = initialFolders[id] ?: return@filter false
+                before.members != f.members || before.name != f.name
+            },
+            orderedEntries = final,
+        )
     }
 
     private fun sameKeys(a: List<DrawerEditEntry>, b: List<DrawerEditEntry>): Boolean {
@@ -68,3 +84,15 @@ object DrawerEditSession {
         return keysOf(a) == keysOf(b)
     }
 }
+
+/** See [DrawerEditSession.buildCommitPlan]. */
+data class CommitPlan(
+    /** Folders created in this session (folderId == null), in display order. */
+    val newFolders: List<DrawerEditEntry.Folder>,
+    /** Ids of pre-existing folders the session disbanded. */
+    val deletedFolderIds: List<Int>,
+    /** Pre-existing folders whose membership or name changed. */
+    val updatedFolders: List<DrawerEditEntry.Folder>,
+    /** The final display sequence; new folders appear here without ids. */
+    val orderedEntries: List<DrawerEditEntry>,
+)

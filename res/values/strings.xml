@@ -169,6 +169,11 @@
     <string name="morrowa_drawer_edit_discard_title">Discard changes?</string>
     <string name="morrowa_drawer_edit_discard_message">Your reordering has not been saved.</string>
     <string name="morrowa_drawer_edit_discard">Discard</string>
+    <string name="morrowa_drawer_edit_group">Create folder</string>
+    <string name="morrowa_drawer_edit_add_to_folder">Add to folder</string>
+    <string name="morrowa_drawer_edit_disband">Disband folder</string>
+    <string name="morrowa_drawer_edit_folder_name">Folder name</string>
+    <string name="morrowa_drawer_edit_default_folder_name">Folder</string>
     <!-- Text on the button that adds a widget to the home screen. [CHAR_LIMIT=15] -->
     <string name="widget_add_button_label">Add</string>
     <!-- Accessibility content description for the button that adds a widget to the home screen. The

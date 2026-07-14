@@ -6,22 +6,28 @@ import android.graphics.Paint
 import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.drawable.Drawable
+import android.graphics.drawable.GradientDrawable
 import android.view.Gravity
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
+import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ImageView
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
+import androidx.core.graphics.ColorUtils
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.RecyclerView
+import androidx.room.withTransaction
 import app.lawnchair.LawnchairLauncher
 import app.lawnchair.data.AppDatabase
 import app.lawnchair.data.appdrawer.DrawerOrderEntity
+import app.lawnchair.data.folder.FolderInfoEntity
+import app.lawnchair.data.folder.FolderItemEntity
 import com.android.launcher3.AbstractFloatingView
 import com.android.launcher3.R
 import com.android.launcher3.allapps.BaseAllAppsAdapter
@@ -46,11 +52,21 @@ class DrawerEditOverlay(
     private val adapter = EditAdapter()
     private lateinit var recyclerView: RecyclerView
 
+    // Morrowa v2 P3 (§R3): tap-to-select. UI-only state — deliberately NOT in DrawerEditSession,
+    // so a forced close keeps the draft but drops the selection. Entries are data classes, so
+    // set membership survives reorders (the moved entry stays equal to itself).
+    private val selection = linkedSetOf<DrawerEditEntry>()
+    private lateinit var actionBar: LinearLayout
+    private lateinit var groupAction: TextView
+    private lateinit var addToFolderAction: TextView
+    private lateinit var disbandAction: TextView
+
     init {
         orientation = VERTICAL
         setBackgroundColor(Themes.getAttrColor(launcher, android.R.attr.colorBackground))
         buildHeader()
         buildGrid()
+        buildActionBar()
         val insets: Rect = launcher.deviceProfile.insets
         setPadding(insets.left, insets.top, insets.right, insets.bottom)
     }
@@ -103,6 +119,118 @@ class DrawerEditOverlay(
         addView(recyclerView, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
     }
 
+    // ---- P3: selection + actions (§R3) ----
+
+    private fun buildActionBar() {
+        val density = resources.displayMetrics.density
+        val pad = (12 * density).toInt()
+        actionBar = LinearLayout(launcher).apply {
+            orientation = HORIZONTAL
+            gravity = Gravity.CENTER
+            setPadding(pad, pad / 2, pad, pad / 2)
+            visibility = GONE
+        }
+
+        fun action(textRes: Int, onClick: () -> Unit): TextView = TextView(launcher).apply {
+            text = resources.getText(textRes)
+            setTextColor(Themes.getColorAccent(launcher))
+            textSize = 14f
+            gravity = Gravity.CENTER
+            setPadding(pad, pad / 2, pad, pad / 2)
+            setOnClickListener { onClick() }
+        }
+
+        groupAction = action(R.string.morrowa_drawer_edit_group) { promptGroupIntoFolder() }
+        addToFolderAction = action(R.string.morrowa_drawer_edit_add_to_folder) { promptAddToFolder() }
+        disbandAction = action(R.string.morrowa_drawer_edit_disband) { disbandSelected() }
+        listOf(groupAction, addToFolderAction, disbandAction).forEach { view ->
+            actionBar.addView(view, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        }
+        addView(actionBar, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT))
+    }
+
+    private fun toggleSelection(entry: DrawerEditEntry, position: Int) {
+        if (!selection.remove(entry)) selection.add(entry)
+        adapter.notifyItemChanged(position)
+        updateActionBar()
+    }
+
+    private fun clearSelection() {
+        selection.clear()
+        updateActionBar()
+    }
+
+    private fun updateActionBar() {
+        val apps = selection.filterIsInstance<DrawerEditEntry.App>()
+        val folders = selection.filterIsInstance<DrawerEditEntry.Folder>()
+        val appsOnly = apps.isNotEmpty() && folders.isEmpty()
+        val hasAnyFolder = entries().any { it is DrawerEditEntry.Folder }
+        // ネスト不可 (§R3): フォルダを含む選択に「まとめる」「追加」は出さない。
+        groupAction.visibility = if (appsOnly && apps.size >= 2) VISIBLE else GONE
+        addToFolderAction.visibility = if (appsOnly && hasAnyFolder) VISIBLE else GONE
+        disbandAction.visibility = if (folders.size == 1 && apps.isEmpty()) VISIBLE else GONE
+        actionBar.visibility = if (
+            groupAction.visibility == VISIBLE ||
+            addToFolderAction.visibility == VISIBLE ||
+            disbandAction.visibility == VISIBLE
+        ) {
+            VISIBLE
+        } else {
+            GONE
+        }
+    }
+
+    private fun promptGroupIntoFolder() {
+        val keys = selection.filterIsInstance<DrawerEditEntry.App>().map { it.key }
+        if (keys.size < 2) return
+        val input = EditText(launcher).apply {
+            hint = resources.getText(R.string.morrowa_drawer_edit_folder_name)
+            isSingleLine = true
+        }
+        AlertDialog.Builder(launcher)
+            .setTitle(R.string.morrowa_drawer_edit_folder_name)
+            .setView(input)
+            .setNegativeButton(R.string.morrowa_drawer_edit_cancel, null)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                val name = input.text.toString().trim()
+                    .ifEmpty { resources.getString(R.string.morrowa_drawer_edit_default_folder_name) }
+                applyModelChange { it.groupIntoFolder(keys, name) }
+            }
+            .show()
+    }
+
+    private fun promptAddToFolder() {
+        val keys = selection.filterIsInstance<DrawerEditEntry.App>().map { it.key }
+        if (keys.isEmpty()) return
+        val folders = entries().withIndex()
+            .filter { (_, entry) -> entry is DrawerEditEntry.Folder }
+        if (folders.isEmpty()) return
+        val labels = folders.map { (_, entry) -> (entry as DrawerEditEntry.Folder).name }.toTypedArray()
+        AlertDialog.Builder(launcher)
+            .setTitle(R.string.morrowa_drawer_edit_add_to_folder)
+            .setItems(labels) { _, which ->
+                // Resolve the folder's CURRENT index at apply time (indices are stable here —
+                // nothing else can mutate the draft between the dialog and this callback).
+                applyModelChange { it.addToFolder(keys, folders[which].index) }
+            }
+            .setNegativeButton(R.string.morrowa_drawer_edit_cancel, null)
+            .show()
+    }
+
+    private fun disbandSelected() {
+        val folder = selection.filterIsInstance<DrawerEditEntry.Folder>().singleOrNull() ?: return
+        val index = entries().indexOf(folder)
+        if (index < 0) return
+        applyModelChange { it.disband(index) }
+    }
+
+    /** Applies [op] to the draft and refreshes the whole grid (edit surface — DiffUtil not needed). */
+    private fun applyModelChange(op: (DrawerOrderModel) -> DrawerOrderModel) {
+        DrawerEditSession.update(op)
+        clearSelection()
+        adapter.notifyDataSetChanged()
+    }
+
     // ---- open/close ----
 
     private fun markOpen() {
@@ -127,15 +255,54 @@ class DrawerEditOverlay(
     }
 
     private fun commitAndClose() {
-        val keys = DrawerEditSession.commitKeys()
-        if (keys.isNotEmpty()) {
-            val entities = keys.mapIndexed { index, key -> DrawerOrderEntity(key = key, rank = index) }
-            launcher.lifecycleScope.launch {
-                AppDatabase.INSTANCE.get(launcher).drawerOrderDao().replaceAll(entities)
-            }
+        val plan = DrawerEditSession.buildCommitPlan()
+        if (plan != null) {
+            launcher.lifecycleScope.launch { executeCommit(plan) }
         }
         DrawerEditSession.clear()
         close(true)
+    }
+
+    /**
+     * Morrowa v2 P3 (§R4): the single write of the whole edit — folder creates/deletes/updates and
+     * the full order — in ONE Room transaction, so the drawer's flows observe exactly one
+     * consistent change. DAO calls go through FolderDao directly (FolderService wraps its calls in
+     * withContext(IO), which is not allowed inside withTransaction). FolderInfoEntity.hide is
+     * reset to its default here, which is safe: hidden folders are never displayed, so they can't
+     * be part of an edit session.
+     */
+    private suspend fun executeCommit(plan: CommitPlan) {
+        val db = AppDatabase.INSTANCE.get(launcher)
+        db.withTransaction {
+            val folderDao = db.folderDao()
+            val newIds = HashMap<DrawerEditEntry.Folder, Int>()
+            plan.newFolders.forEach { folder ->
+                val id = folderDao.createFolderWithItems(FolderInfoEntity(title = folder.name)) { newId ->
+                    folder.members.mapIndexed { rank, key ->
+                        FolderItemEntity(folderId = newId, rank = rank, componentKey = key)
+                    }
+                }
+                newIds[folder] = id
+            }
+            plan.deletedFolderIds.forEach { folderDao.deleteFolder(it) }
+            plan.updatedFolders.forEach { folder ->
+                val id = folder.folderId ?: return@forEach
+                folderDao.insertFolderWithItems(
+                    FolderInfoEntity(id = id, title = folder.name),
+                    folder.members.mapIndexed { rank, key ->
+                        FolderItemEntity(folderId = id, rank = rank, componentKey = key)
+                    },
+                )
+            }
+            val orderEntities = plan.orderedEntries.mapNotNull { entry ->
+                when (entry) {
+                    is DrawerEditEntry.App -> DrawerOrderKeys.app(entry.key)
+                    is DrawerEditEntry.Folder ->
+                        (entry.folderId ?: newIds[entry])?.let { DrawerOrderKeys.folder(it) }
+                }
+            }.mapIndexed { rank, key -> DrawerOrderEntity(key = key, rank = rank) }
+            db.drawerOrderDao().replaceAll(orderEntities)
+        }
     }
 
     override fun onBackInvoked() {
@@ -209,7 +376,8 @@ class DrawerEditOverlay(
         }
 
         override fun onBindViewHolder(holder: CellHolder, position: Int) {
-            when (val entry = entries()[position]) {
+            val entry = entries()[position]
+            when (entry) {
                 is DrawerEditEntry.App -> {
                     val info = resolveApp(entry.key)
                     holder.iconView.visibility = VISIBLE
@@ -226,7 +394,20 @@ class DrawerEditOverlay(
                     holder.label.text = entry.name
                 }
             }
+            // Morrowa v2 P3: tap = selection toggle (§R3); selected cells get a translucent
+            // accent-colored rounded background.
+            holder.itemView.background = if (entry in selection) selectedBackground() else null
+            holder.itemView.setOnClickListener {
+                val pos = holder.bindingAdapterPosition
+                if (pos == RecyclerView.NO_POSITION) return@setOnClickListener
+                toggleSelection(entries()[pos], pos)
+            }
         }
+    }
+
+    private fun selectedBackground(): GradientDrawable = GradientDrawable().apply {
+        cornerRadius = 16f * resources.displayMetrics.density
+        setColor(ColorUtils.setAlphaComponent(Themes.getColorAccent(launcher), 60))
     }
 
     private class CellHolder(

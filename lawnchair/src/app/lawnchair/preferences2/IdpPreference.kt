@@ -28,6 +28,16 @@ class IdpPreference(
 
     fun defaultValue(gridOption: InvariantDeviceProfile.GridOption) = defaultSelector(gridOption)
 
+    /**
+     * Morrowa (drawer-columns fix): the raw stored value, or null when the user never changed it
+     * (or explicitly reset to default, stored as -1). Unlike [get], this needs no [gridOption], so
+     * callers can cache it and resolve the grid-dependent default at apply time — see
+     * [app.lawnchair.DeviceProfileOverrides].
+     */
+    fun storedValue() = preferencesDataStore.data.map { preferences ->
+        preferences[key]?.takeIf { it != -1 }
+    }
+
     suspend fun set(value: Int, gridOption: InvariantDeviceProfile.GridOption) {
         preferencesDataStore.edit { mutablePreferences ->
             val defaultValue = defaultSelector(gridOption)

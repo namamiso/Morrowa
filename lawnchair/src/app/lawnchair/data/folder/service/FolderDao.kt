@@ -38,6 +38,26 @@ interface FolderDao {
         insertFolderItems(items)
     }
 
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFolderReturningId(folder: FolderInfoEntity): Long
+
+    /**
+     * Morrowa v2 P3 (docs/Morrowa_AppDrawer_編集モードv2_要件設計.md §R4): creates a new folder AND
+     * its initial members atomically, returning the generated folder id. [folder] is forced to
+     * id=0 so Room always inserts a fresh row; [items] is a factory given the generated id so the
+     * children carry the correct foreign key. Called from the edit-session commit's enclosing
+     * transaction (nested @Transaction is a no-op inside withTransaction).
+     */
+    @Transaction
+    suspend fun createFolderWithItems(
+        folder: FolderInfoEntity,
+        items: (folderId: Int) -> List<FolderItemEntity>,
+    ): Int {
+        val newId = insertFolderReturningId(folder.copy(id = 0)).toInt()
+        insertFolderItems(items(newId))
+        return newId
+    }
+
     @Query("DELETE FROM FolderItems WHERE folderId = :folderId")
     suspend fun deleteFolderItemsByFolderId(folderId: Int)
 

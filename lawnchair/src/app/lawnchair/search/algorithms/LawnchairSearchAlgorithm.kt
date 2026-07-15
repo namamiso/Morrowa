@@ -4,6 +4,7 @@ import android.content.Context
 import app.lawnchair.LawnchairApp
 import app.lawnchair.allapps.views.SearchItemBackground
 import app.lawnchair.allapps.views.SearchResultView.Companion.EXTRA_QUICK_LAUNCH
+import app.lawnchair.preferences2.PreferenceCaches
 import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.search.LawnchairSearchAdapterProvider
 import app.lawnchair.search.adapter.START_PAGE
@@ -235,8 +236,8 @@ sealed class LawnchairSearchAlgorithm(
         }
 
         fun create(context: Context): LawnchairSearchAlgorithm {
-            val prefs = PreferenceManager2.getInstance(context)
-            val searchAlgorithm = prefs.searchAlgorithm.defaultValue
+            // Morrowa B-1: the user's chosen engine, not the default (bb6f9e07fb regression).
+            val searchAlgorithm = PreferenceCaches.INSTANCE.get(context).searchAlgorithm.value
 
             return when {
                 searchAlgorithm == ASI_SEARCH && isASISearchEnabled(context) -> LawnchairASISearchAlgorithm(

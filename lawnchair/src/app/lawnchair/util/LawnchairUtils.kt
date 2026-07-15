@@ -48,6 +48,7 @@ import androidx.core.graphics.createBitmap
 import androidx.core.graphics.luminance
 import androidx.core.os.UserManagerCompat
 import app.lawnchair.preferences.PreferenceManager
+import app.lawnchair.preferences2.PreferenceCaches
 import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.theme.color.ColorOption
 import app.lawnchair.theme.color.tokens.ColorTokens
@@ -174,20 +175,15 @@ private val pendingIntentTagId =
 
 val View?.pendingIntent get() = this?.getTag(pendingIntentTagId) as? PendingIntent
 
-fun getFolderPreviewAlpha(context: Context): Int {
-    val prefs2 = PreferenceManager2.getInstance(context)
-    return (prefs2.folderPreviewBackgroundOpacity.defaultValue * 255).toInt()
-}
+// Morrowa B-1: these run per render — read the cached stored value, not the static default
+// (bb6f9e07fb regression; see PreferenceCaches).
+fun getFolderPreviewAlpha(context: Context): Int = (PreferenceCaches.INSTANCE.get(context).folderPreviewBackgroundOpacity.value * 255).toInt()
 
-fun getFolderBackgroundAlpha(context: Context): Int {
-    val prefs2 = PreferenceManager2.getInstance(context)
-    return (prefs2.folderBackgroundOpacity.defaultValue * 255).toInt()
-}
+fun getFolderBackgroundAlpha(context: Context): Int = (PreferenceCaches.INSTANCE.get(context).folderBackgroundOpacity.value * 255).toInt()
 
 /** Apply Lawnchair custom allapps colour to the provided colour */
 private fun getAllAppsBaseColor(context: Context, defaultColor: Int): Int {
-    val prefs2 = PreferenceManager2.getInstance(context)
-    val colorOptions: ColorOption = prefs2.appDrawerBackgroundColor.defaultValue
+    val colorOptions: ColorOption = PreferenceCaches.INSTANCE.get(context).appDrawerBackgroundColor.value
     val color = colorOptions.colorPreferenceEntry.lightColor.invoke(context)
     val baseColor = if (color != 0) color else defaultColor
     return ColorUtils.setAlphaComponent(baseColor, 255)

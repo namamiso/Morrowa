@@ -27,6 +27,7 @@ import androidx.interpolator.view.animation.FastOutSlowInInterpolator
 import androidx.lifecycle.lifecycleScope
 import app.lawnchair.launcher
 import app.lawnchair.preferences.PreferenceManager
+import app.lawnchair.preferences2.PreferenceCaches
 import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.preferences2.subscribeBlocking
 import app.lawnchair.qsb.AssistantIconView
@@ -127,7 +128,8 @@ class AllAppsSearchInput(context: Context, attrs: AttributeSet?) :
         micIcon = ViewCompat.requireViewById(this, R.id.mic_btn)
         lensIcon = ViewCompat.requireViewById(this, R.id.lens_btn)
 
-        val shouldShowIcons = prefs2.matchHotseatQsbStyle.defaultValue
+        // Morrowa B-1: cached stored value, not the default (bb6f9e07fb regression).
+        val shouldShowIcons = PreferenceCaches.INSTANCE.get(context).matchHotseatQsbStyle.value
 
         val searchProvider = getSearchProvider(context, prefs2)
         val isGoogle = searchProvider == Google || searchProvider == GoogleGo || searchProvider == PixelSearch
@@ -246,7 +248,8 @@ class AllAppsSearchInput(context: Context, attrs: AttributeSet?) :
             },
         )
 
-        val hide = prefs2.hideAppDrawerSearchBar.defaultValue
+        // Morrowa B-1: cached stored value, not the default (bb6f9e07fb regression).
+        val hide = PreferenceCaches.INSTANCE.get(context).hideAppDrawerSearchBar.value
         if (hide) {
             isInvisible = true
             layoutParams.height = 0

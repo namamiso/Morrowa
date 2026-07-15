@@ -22,6 +22,7 @@ import app.lawnchair.animateToAllApps
 import app.lawnchair.launcher
 import app.lawnchair.launcherNullable
 import app.lawnchair.preferences.PreferenceManager
+import app.lawnchair.preferences2.PreferenceCaches
 import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.preferences2.subscribeBlocking
 import app.lawnchair.qsb.providers.AppSearch
@@ -237,7 +238,9 @@ class LawnQsbLayout(context: Context, attrs: AttributeSet?) : FrameLayout(contex
             context: Context,
             preferenceManager: PreferenceManager2,
         ): QsbSearchProvider {
-            val provider = preferenceManager.hotseatQsbProvider.defaultValue
+            // Morrowa B-1: the user's chosen provider, not the default (bb6f9e07fb regression;
+            // cached read keeps this hot path non-blocking).
+            val provider = PreferenceCaches.INSTANCE.get(context).hotseatQsbProvider.value
 
             return if (provider == AppSearch ||
                 resolveIntent(context, provider.createSearchIntent()) ||

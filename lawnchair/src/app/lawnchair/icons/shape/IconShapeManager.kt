@@ -21,7 +21,7 @@ package app.lawnchair.icons.shape
 
 import android.content.Context
 import android.graphics.drawable.AdaptiveIconDrawable
-import app.lawnchair.preferences2.PreferenceManager2
+import app.lawnchair.preferences2.PreferenceCaches
 import com.android.launcher3.Utilities
 import com.android.launcher3.dagger.ApplicationContext
 import com.android.launcher3.dagger.LauncherAppComponent
@@ -54,7 +54,8 @@ class IconShapeManager @Inject constructor(
 
         fun getSystemIconShape(context: Context) = INSTANCE.get(context).systemIconShape
 
+        // Morrowa B-1: use the user's current shape, not the default (bb6f9e07fb regression).
         @JvmStatic
-        fun getWindowTransitionRadius(context: Context) = PreferenceManager2.getInstance(context).iconShape.defaultValue.windowTransitionRadius
+        fun getWindowTransitionRadius(context: Context) = PreferenceCaches.INSTANCE.get(context).iconShape.value.windowTransitionRadius
     }
 }

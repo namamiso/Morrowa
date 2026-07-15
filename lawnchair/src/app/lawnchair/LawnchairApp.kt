@@ -70,6 +70,9 @@ class LawnchairApp : LauncherApplication() {
         QuickStepContract.sRecentsDisabled = !recentsEnabled
         Flowerpot.Manager.getInstance(this)
         registerActivityLifecycleCallbacks(activityHandler)
+        // Morrowa B-1: start the async preference-cache fill now (non-blocking) so the values are
+        // warm before the launcher UI inflates. See PreferenceCaches.
+        app.lawnchair.preferences2.PreferenceCaches.INSTANCE.get(this)
     }
 
     fun hideClockInStatusBar() {

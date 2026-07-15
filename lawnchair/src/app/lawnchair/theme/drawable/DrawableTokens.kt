@@ -9,7 +9,7 @@ import android.graphics.drawable.LayerDrawable
 import android.graphics.drawable.RippleDrawable
 import android.graphics.drawable.StateListDrawable
 import androidx.appcompat.content.res.AppCompatResources
-import app.lawnchair.preferences2.PreferenceManager2
+import app.lawnchair.preferences2.PreferenceCaches
 import app.lawnchair.theme.color.tokens.ColorTokens
 import com.android.launcher3.R
 
@@ -157,8 +157,8 @@ object DrawableTokens {
         )
 
         // Get custom color from preferences
-        val prefs2 = PreferenceManager2.getInstance(context)
-        val colorOption = prefs2.workProfileTabBackgroundColor.defaultValue
+        // Morrowa B-1: cached stored value, not the default (bb6f9e07fb regression).
+        val colorOption = PreferenceCaches.INSTANCE.get(context).workProfileTabBackgroundColor.value
         val customColor = colorOption.colorPreferenceEntry.lightColor.invoke(context)
 
         val selectedColor = if (customColor != 0) {

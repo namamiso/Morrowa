@@ -6,6 +6,7 @@ import app.lawnchair.icons.shape.IconShape
 import app.lawnchair.icons.shape.PathShapeDelegate
 import app.lawnchair.preferences.PreferenceChangeListener
 import app.lawnchair.preferences.PreferenceManager
+import app.lawnchair.preferences2.PreferenceCaches
 import app.lawnchair.preferences2.PreferenceManager2
 import com.android.launcher3.LauncherPrefs
 import com.android.launcher3.concurrent.annotations.Ui
@@ -84,15 +85,18 @@ constructor(
     private fun prefs1State(): String = statePrefs1.joinToString(",") { it.get().toString() }
 
     private fun parseIconStateV2(oldState: IconState?): IconState {
+        // Morrowa B-1: the state recompute must read the user's CURRENT shapes — the observer in
+        // init fires on change, but reading defaultValue here rebuilt the state from the default
+        // shape every time (bb6f9e07fb regression; see PreferenceCaches).
         val currentAppShape: IconShape = try {
-            prefs2.iconShape.defaultValue
+            PreferenceCaches.INSTANCE.get(context).iconShape.value
         } catch (e: Exception) {
             Log.d(TAG, "Error getting icon shape", e)
             IconShape.Circle
         }
 
         val currentFolderShape: IconShape = try {
-            prefs2.folderShape.defaultValue
+            PreferenceCaches.INSTANCE.get(context).folderShape.value
         } catch (e: Exception) {
             Log.d(TAG, "Error getting folder shape", e)
             IconShape.Circle

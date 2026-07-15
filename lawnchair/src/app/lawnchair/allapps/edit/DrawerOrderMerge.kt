@@ -28,17 +28,38 @@ object DrawerOrderMerge {
      *   then unranked apps, appended at the end in their input order — the v2 R2
      *   "new entries go to the end" rule. Ranks for keys that no longer exist (uninstalled app,
      *   deleted folder) are ignored.
+     * - [memberOf] (app key -> folder key; only populated when `hideFolderApps` is OFF, i.e.
+     *   folder members also appear as top-level apps): an unranked app that is a member of a
+     *   displayed folder is placed **right after that folder** instead of at the end (B-3 —
+     *   the edit session never ranks member duplicates, so without this they would all pile up
+     *   at the bottom after the first commit).
      */
     fun mergedKeys(
         ranks: Map<String, Int>,
         folderKeys: List<String>,
         appKeys: List<String>,
+        memberOf: Map<String, String> = emptyMap(),
     ): List<String> {
         if (ranks.isEmpty()) return folderKeys + appKeys
         val all = folderKeys + appKeys
         val ranked = all.filter { it in ranks }.sortedBy { ranks[it] }
         val unrankedFolders = folderKeys.filter { it !in ranks }
-        val unrankedApps = appKeys.filter { it !in ranks }
-        return ranked + unrankedFolders + unrankedApps
+        val base = (ranked + unrankedFolders).toMutableList()
+        val baseSet = base.toSet()
+        val trailing = mutableListOf<String>()
+        val membersByFolder = LinkedHashMap<String, MutableList<String>>()
+        for (app in appKeys) {
+            if (app in ranks) continue
+            val parent = memberOf[app]
+            if (parent != null && parent in baseSet) {
+                membersByFolder.getOrPut(parent) { mutableListOf() }.add(app)
+            } else {
+                trailing.add(app)
+            }
+        }
+        for ((folderKey, members) in membersByFolder) {
+            base.addAll(base.indexOf(folderKey) + 1, members)
+        }
+        return base + trailing
     }
 }

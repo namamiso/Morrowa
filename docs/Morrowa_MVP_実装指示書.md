@@ -496,13 +496,13 @@ Launcher DB を変更する必要性が判断されている。
 
 ## 11. 仕様判断が必要な未確定事項
 
-以下は実装中に調査または判断が必要な項目である。
+**(2026-07-15 全件クローズ)** 実装により以下のとおり確定した(残項目一覧 A-3)。
 
-- Habit / ToDo 専用画面をどのレイヤーに差し込むか
-- 透明アイコン状態を Lawnchair DB に持たせる具体的方法
-- Lawnchair DB 拡張が危険な場合の Morrowa 側 fallback 保存方式
-- exact alarm 権限方針
-- exact alarm が使えない場合の代替実装
+- Habit / ToDo 専用画面をどのレイヤーに差し込むか → **Workspace 内の専用スクリーン**(`Workspace.MORROWA_HABIT/TODO_SCREEN_ID` + `MorrowaWorkspacePageView`)として実装
+- 透明アイコン状態を Lawnchair DB に持たせる具体的方法 → **DB には持たせない**(下記 fallback を正式採用)
+- Lawnchair DB 拡張が危険な場合の Morrowa 側 fallback 保存方式 → **SharedPreferences のキー集合**(`MorrowaTransparentItemController`)
+- exact alarm 権限方針 → **`SCHEDULE_EXACT_ALARM` を宣言**し、実行時に `canScheduleExactAlarms()` で判定
+- exact alarm が使えない場合の代替実装 → **`setWindow`(5分ウィンドウ)へフォールバック**(`AlarmScheduler`)
 
 ## 12. 決定済み事項
 

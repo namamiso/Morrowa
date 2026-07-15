@@ -699,10 +699,23 @@ class DrawerEditOverlay(
 
         private fun buildSnapshot(launcher: LawnchairLauncher): List<DrawerEditEntry> {
             val items = launcher.appsView.personalAppList.adapterItems
+            // Morrowa B-3: with hideFolderApps OFF the display shows member apps top-level too.
+            // The edit model requires every key to appear exactly once, so member duplicates are
+            // dropped from the top level here (they stay editable inside their folder; the read
+            // walk re-inserts them right after the folder via DrawerOrderMerge.memberOf).
+            val memberKeys = items
+                .filter { it.viewType == BaseAllAppsAdapter.VIEW_TYPE_FOLDER }
+                .flatMap { item ->
+                    item.folderInfo?.getContents().orEmpty().mapNotNull { content ->
+                        (content as? AppInfo)?.toComponentKey()?.toString()
+                    }
+                }
+                .toSet()
             return items.mapNotNull { item ->
                 when (item.viewType) {
                     BaseAllAppsAdapter.VIEW_TYPE_ICON -> item.itemInfo?.let { info ->
-                        DrawerEditEntry.App(info.toComponentKey().toString())
+                        val key = info.toComponentKey().toString()
+                        if (key in memberKeys) null else DrawerEditEntry.App(key)
                     }
                     BaseAllAppsAdapter.VIEW_TYPE_FOLDER -> item.folderInfo?.let { folder ->
                         DrawerEditEntry.Folder(

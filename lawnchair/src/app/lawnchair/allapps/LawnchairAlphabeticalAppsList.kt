@@ -183,10 +183,28 @@ class LawnchairAlphabeticalAppsList<T>(
 
             val folderByKey = folderInfos.associateBy { DrawerOrderKeys.folder(it.id) }
             val appByKey = apps.associateBy { DrawerOrderKeys.app(it.toComponentKey().toString()) }
+            // Morrowa B-3: with hideFolderApps OFF, member apps also appear top-level but are
+            // never ranked by an edit commit — map them to their folder so the merge places them
+            // right after it instead of dumping them at the end.
+            val memberOf = if (prefs.folderApps.get()) {
+                emptyMap()
+            } else {
+                buildMap {
+                    folderInfos.forEach { folderInfo ->
+                        val folderKey = DrawerOrderKeys.folder(folderInfo.id)
+                        folderInfo.getContents().forEach { content ->
+                            (content as? AppInfo)?.let {
+                                put(DrawerOrderKeys.app(it.toComponentKey().toString()), folderKey)
+                            }
+                        }
+                    }
+                }
+            }
             val merged = DrawerOrderMerge.mergedKeys(
                 ranks = drawerOrder,
                 folderKeys = folderInfos.map { DrawerOrderKeys.folder(it.id) },
                 appKeys = apps.map { DrawerOrderKeys.app(it.toComponentKey().toString()) },
+                memberOf = memberOf,
             )
 
             var lastSectionName: String? = null

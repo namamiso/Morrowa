@@ -766,6 +766,9 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         CellLayout todoScreen = ensureMorrowaScreen(MORROWA_TODO_SCREEN_ID, MorrowaPage.TODO);
         reorderMorrowaScreens(habitScreen, todoScreen);
         persistCurrentScreenOrderSync();
+        // Morrowa B-2 (docs/Morrowa_残項目一覧.md): one-shot migration of legacy Dock items into
+        // the workspace grid, now that all screens are bound. No-op after its flag is set.
+        app.morrowa.MorrowaDockMigration.maybeMigrate(mLauncher);
     }
 
     private CellLayout ensureMorrowaScreen(int screenId, MorrowaPage page) {

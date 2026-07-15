@@ -7,18 +7,18 @@ MVP ゴール(実装指示書 §2)は実質完走。本書は「残っている�
 
 | # | 項目 | 内容 | 状態 |
 |---|---|---|---|
-| A-1 | **ドロワー→ホーム配置の復活** | v1 ロールバックで `AddToHomescreenDropTarget` が消え、「ドロワー drag は ALL_APPS に留まる」ゲートは残存 → **ホームにアプリを置く手段が現在無い**。最小実装案: アイコン長押しポップアップに「ホーム画面に追加」項目(ドラッグ不要・AOSP 変更ゼロ、§12.7 の「裏で開いているページ優先/Habit・ToDo は Home へフォールバック」ロジックを流用) | 未着手 |
-| A-2 | **共通検証スイープ** | 実装指示書 §10 の全項目を最新ビルドで通し確認 → MVP 完了宣言。「透明アイコンの長押しメニュー(透明解除/ホームから削除+Undo)」等、決定済み事項の実装有無もここで確認 | 未着手 |
-| A-3 | **§11 未確定事項のクローズ** | 5件(差し込みレイヤー/透明アイコン DB 方式/fallback 保存/exact alarm 権限方針/代替実装)は実装で事実上決着済みのはず。何を選んだかを確認し、指示書 §12(決定済み)へ昇格記載 | 未着手 |
+| A-1 | ドロワー→ホーム配置 | **クローズ(2026-07-15、誤認)**: ロールバックで v1 のゲートも消えており、OSS 標準の「ドラッグ保持のままホームへ遷移して配置」が健在(実機確認済み) | ✅ |
+| A-2 | 共通検証スイープ | **クローズ(2026-07-15)**: 透明化系の決定事項も実装済みと実機確認 | ✅ |
+| A-3 | §11 未確定事項 | **クローズ(2026-07-15)**: 5件全て実装内容を確認し実装指示書 §11 に確定内容を記載(専用スクリーン/SharedPreferences 方式/SCHEDULE_EXACT_ALARM+setWindow フォールバック) | ✅ |
 
 ## B. 既知バグ・技術負債
 
 | # | 項目 | 内容 | 状態 |
 |---|---|---|---|
-| B-1 | **ANR 修正の同種バグ疑い 14箇所** | `bb6f9e07fb` が `firstBlocking`→`defaultValue` に置換した残りのファイル(LawnchairThemeManager×2, ThemeProvider×2, LawnchairUtils×3, AllAppsSearchInput×2, IconShapeManager, DrawableTokens, LawnQsbLayout, LawnchairSearchAlgorithm, OverlayCallbackImpl 各1)。**テーマ・アイコン形状・QSB・検索・フィード設定がデフォルト固定になっている可能性**。列数バグ(`c5460eb956` で修正)と同型。要トリアージ→該当箇所に DeviceProfileOverrides と同じ「キャッシュ+追い適用」を展開 | 未着手 |
-| B-2 | Dock→Workspace 下部行 migration | 指示書 §12 で「将来タスク」と明記(既存 Dock アイテムは DB に残し非表示のまま) | 未着手(仕様どおり) |
-| B-3 | hideFolderApps=false 時の編集セッション重複キー | v2 設計書 完了記録に記載のエッジケース。member アプリがメイン一覧にも出る設定だと編集モデルのキー一意性前提が崩れる | 未着手 |
-| B-4 | v1 ロールバック残骸の確認 | `Workspace.onDragStart` の ALL_APPS ゲート等、v1 前提のガードが現仕様と整合しているかの点検(A-1 と同時に) | 未着手 |
+| B-1 | **ANR 修正の同種バグ疑い 14箇所** | `bb6f9e07fb` が `firstBlocking`→`defaultValue` に置換した残りのファイル(LawnchairThemeManager×2, ThemeProvider×2, LawnchairUtils×3, AllAppsSearchInput×2, IconShapeManager, DrawableTokens, LawnQsbLayout, LawnchairSearchAlgorithm, OverlayCallbackImpl 各1)。**テーマ・アイコン形状・QSB・検索・フィード設定がデフォルト固定になっている可能性**。列数バグ(`c5460eb956` で修正)と同型。要トリアージ→該当箇所に DeviceProfileOverrides と同じ「キャッシュ+追い適用」を展開 | ✅ **修正済み(2026-07-15)**: トリアージ結果=本物11件+初期フレームのみ3件(既存 observer が自己修正: ThemeProvider accent/colorStyle, enableFeed)。`PreferenceCaches`(App 起動時に非同期ウォーム)を新設し11箇所を差し替え |
+| B-2 | Dock→Workspace 下部行 migration | `MorrowaDockMigration`: bind 完了後に one-shot で hotseat アイテムを空きセル(下行優先・Habit/ToDo スクリーン除外)へ移動し1回だけ reload。空き不足分は従来どおり非表示のまま残す | ✅ 実装済み(2026-07-15)・実機確認待ち |
+| B-3 | hideFolderApps=false 時の編集セッション重複キー | スナップショットで member 重複を除外(編集はフォルダ内で)+読み walk はメンバーを**フォルダ直後**に配置(`DrawerOrderMerge.memberOf`、テスト3件追加) | ✅ 実装済み(2026-07-15)・実機確認待ち |
+| B-4 | v1 ロールバック残骸の確認 | **クローズ(2026-07-15)**: Workspace/LauncherDragController/Launcher を監査、v1 由来ゲートはロールバックで全て消えておりクリーン(だからこそ OSS 標準ドラッグ配置が生きている=A-1) | ✅ |
 
 ## C. ドロワー編集 v2 第2フェーズ候補(任意)
 
@@ -26,7 +26,7 @@ MVP ゴール(実装指示書 §2)は実質完走。本書は「残っている�
 |---|---|---|
 | C-1 | ドラッグ重ねでのフォルダ生成/既存フォルダへ追加 | v2 は複数選択方式のみ。Home と同じ「重ねる」操作の追加(v2 設計書 §5 記載) |
 | C-2 | 編集モード入口の追加 | 背景長押し・検索バー横ボタン等(現在はポップアップ「編集」のみ) |
-| C-3 | 編集モードからのホーム配置 | A-1 のポップアップ方式で足りるなら不要。ドラッグでの配置体験が欲しくなったら検討 |
+| C-3 | 編集モードからのホーム配置 | OSS 標準のドラッグ配置(A-1 で健在と確認)で足りるなら不要。編集モード内から直接置きたくなったら検討 |
 
 ## D. 製品スコープ外(指示書 §7 — 将来判断、着手には仕様書改訂が必要)
 
@@ -44,4 +44,4 @@ Dynamic color / 大規模テーマ変更 / 細かいカスタマイズ設定の�
 
 ## 推奨着手順
 
-**A-1 → A-2(+A-3/B-4/E-2 を同セッションで消化)→ B-1 トリアージ** → MVP 完了宣言 → C/E-1 はユーザー判断。
+~~A-1 → A-2 → B-1~~ **A・B は全件クローズ(2026-07-15)。B-1/B-2/B-3 の実機確認が通れば MVP 完了宣言。** 残るは C(任意)/ D(要仕様改訂)/ E(運用)でユーザー判断。

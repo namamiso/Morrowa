@@ -77,6 +77,39 @@ class DrawerOrderMergeTest {
         )
     }
 
+    // ---- memberOf (B-3: hideFolderApps=false — member apps shown top-level too) ----
+
+    @Test
+    fun `unranked member apps land right after their folder, in input order`() {
+        val ranks = mapOf("app:a" to 0, "folder:1" to 1, "app:c" to 2)
+        val memberOf = mapOf("app:x" to "folder:1", "app:y" to "folder:1")
+        assertEquals(
+            listOf("app:a", "folder:1", "app:x", "app:y", "app:c", "folder:2"),
+            DrawerOrderMerge.mergedKeys(ranks, folders, listOf("app:a", "app:c", "app:x", "app:y"), memberOf),
+        )
+    }
+
+    @Test
+    fun `member of a missing folder falls back to the end`() {
+        val ranks = mapOf("app:a" to 0)
+        val memberOf = mapOf("app:x" to "folder:99")
+        assertEquals(
+            listOf("app:a", "folder:1", "folder:2", "app:x"),
+            DrawerOrderMerge.mergedKeys(ranks, folders, listOf("app:a", "app:x"), memberOf),
+        )
+    }
+
+    @Test
+    fun `ranked member apps keep their own rank`() {
+        // A pre-B-3 commit may have ranked a member duplicate; its explicit rank wins.
+        val ranks = mapOf("folder:1" to 0, "app:x" to 1, "app:a" to 2)
+        val memberOf = mapOf("app:x" to "folder:1")
+        assertEquals(
+            listOf("folder:1", "app:x", "app:a", "folder:2"),
+            DrawerOrderMerge.mergedKeys(ranks, folders, listOf("app:a", "app:x"), memberOf),
+        )
+    }
+
     @Test
     fun `key helpers namespace correctly`() {
         assertEquals("app:com.example/.Main", DrawerOrderKeys.app("com.example/.Main"))

@@ -646,7 +646,11 @@ class PreferenceManager2 @Inject constructor(
     val folderColumns = idpPreference(
         key = intPreferencesKey(name = "folder_columns"),
         defaultSelector = { numFolderColumns[INDEX_DEFAULT] },
-        onSet = { reloadHelper.reloadGrid() },
+        // Morrowa fix: reloadGrid alone refreshes the drawer (it re-inflates its folder icons on
+        // onIdpChanged) but leaves already-bound workspace folders on the old grid, so home
+        // folders never picked the change up. Recreate the launcher like other home-affecting
+        // settings do.
+        onSet = { reloadHelper.restart() },
     )
 
     val additionalFonts = preference(

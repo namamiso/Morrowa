@@ -165,6 +165,8 @@ import androidx.annotation.StringRes;
 import androidx.annotation.UiThread;
 import androidx.annotation.VisibleForTesting;
 import androidx.core.os.BuildCompat;
+import androidx.lifecycle.Lifecycle;
+import androidx.lifecycle.LifecycleRegistry;
 import androidx.window.embedding.RuleController;
 
 import com.android.launcher3.DropTarget.DragObject;
@@ -693,7 +695,17 @@ public class Launcher extends StatefulActivity<LauncherState>
 
             // Calling onSaveInstanceState ensures that static cache used by listWidgets is
             // initialized properly.
+            // Morrowa fix: this fake save dispatches onActivitySaveInstanceState, where
+            // LifecycleHelper drops the androidx lifecycle to CREATED even though the activity
+            // never left RESUMED. That freezes every collectAsStateWithLifecycle in
+            // launcher-hosted Compose UI (e.g. the customize dialog's hide-from-drawer switch)
+            // until the next real pause/resume cycle — so restore the actual state afterwards.
+            Lifecycle.State lifecycleStateBeforeFakeSave = getLifecycle().getCurrentState();
             onSaveInstanceState(new Bundle());
+            if (lifecycleStateBeforeFakeSave.isAtLeast(Lifecycle.State.STARTED)
+                    && getLifecycle() instanceof LifecycleRegistry) {
+                ((LifecycleRegistry) getLifecycle()).setCurrentState(lifecycleStateBeforeFakeSave);
+            }
             mModel.rebindCallbacks();
             updateDisallowBack();
         } finally {

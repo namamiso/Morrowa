@@ -182,10 +182,17 @@ fun CustomizeAppDialog(
         ) {
             val stringKey = componentKey.toString()
             Item {
+                // Morrowa fix: drive the switch from local state so it flips the moment it is
+                // tapped. Deriving checked from hiddenApps.asState() left the switch frozen
+                // whenever the launcher's androidx lifecycle wasn't STARTED (see the fake
+                // onSaveInstanceState in Launcher#onHandleConfigurationChanged), even though
+                // the DataStore write itself succeeded and the app was hidden.
+                var hidden by remember { mutableStateOf(hiddenApps.contains(stringKey)) }
                 SwitchPreference(
-                    checked = hiddenApps.contains(stringKey),
+                    checked = hidden,
                     label = stringResource(id = R.string.hide_from_drawer),
                     onCheckedChange = { newValue ->
+                        hidden = newValue
                         val newSet = hiddenApps.toMutableSet()
                         if (newValue) newSet.add(stringKey) else newSet.remove(stringKey)
                         adapter.onChange(newSet)

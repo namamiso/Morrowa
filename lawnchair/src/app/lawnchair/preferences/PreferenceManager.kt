@@ -60,6 +60,13 @@ class PreferenceManager @Inject constructor(
         Unit
     }
 
+    // Morrowa fix: reloadGrid alone updates the drawer's folders but not already-bound home
+    // folders — see folderColumns in PreferenceManager2.
+    private val restart: () -> Unit = {
+        reloadGrid()
+        recreate()
+    }
+
     val iconPackPackage = StringPref("pref_iconPackPackage", "", reloadIcons)
     val themedIconPackPackage = StringPref("pref_themedIconPackPackage", "", reloadIcons)
     val allowRotation = BoolPref("pref_allowRotation", false)
@@ -71,7 +78,7 @@ class PreferenceManager @Inject constructor(
     val workspaceColumns = IntPref("pref_workspaceColumns", 4)
     val workspaceRows = IntPref("pref_workspaceRows", 9)
     val workspaceIncreaseMaxGridSize = BoolPref("pref_workspace_increase_max_grid_size", false)
-    val folderRows = IdpIntPref("pref_folderRows", { numFolderRows[INDEX_DEFAULT] }, reloadGrid)
+    val folderRows = IdpIntPref("pref_folderRows", { numFolderRows[INDEX_DEFAULT] }, restart)
 
     val drawerOpacity = FloatPref("pref_drawerOpacity", .4f, recreate)
     val coloredBackgroundLightness = FloatPref("pref_coloredBackgroundLightness", 1F)

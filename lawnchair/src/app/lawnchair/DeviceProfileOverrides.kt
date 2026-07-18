@@ -4,6 +4,7 @@ import android.content.Context
 import app.lawnchair.preferences.PreferenceManager
 import app.lawnchair.preferences2.PreferenceManager2
 import app.lawnchair.preferences2.ReloadHelper
+import app.lawnchair.preferences2.firstBlocking
 import com.android.launcher3.InvariantDeviceProfile
 import com.android.launcher3.InvariantDeviceProfile.INDEX_DEFAULT
 import com.android.launcher3.InvariantDeviceProfile.INDEX_LANDSCAPE
@@ -203,7 +204,14 @@ class DeviceProfileOverrides @Inject constructor(
         ) : this(
             numAllAppsColumns = stored?.drawerColumns ?: prefs2.drawerColumns.defaultValue(defaultGrid),
             numFolderRows = prefs.folderRows.get(defaultGrid),
-            numFolderColumns = stored?.folderColumns ?: prefs2.folderColumns.defaultValue(defaultGrid),
+            // Morrowa fix (本命): folderColumns feeds already-bound home-screen folders, which
+            // reloadGrid can't rebind — only a recreate() can. But recreate() runs synchronously
+            // from the setter's onSet, before the async `stored` cache (bb6f9e07fb ANR fix) holds
+            // the new value, so reading from `stored` here rebuilt the DeviceProfile with the stale
+            // column count and home folders never updated. Read it synchronously (like folderRows
+            // above) so the recreate picks up the real value. This re-adds one blocking DataStore
+            // read to initGrid — accepted trade-off vs. home folders being permanently wrong.
+            numFolderColumns = prefs2.folderColumns.firstBlocking(defaultGrid),
 
             iconSizeFactor = stored?.sizes?.iconSizeFactor
                 ?: prefs2.homeIconSizeFactor.defaultValue,

@@ -80,7 +80,12 @@ class DrawerEditOverlay(
         buildGrid()
         buildActionBar()
         val insets: Rect = launcher.deviceProfile.insets
-        setPadding(insets.left, insets.top, insets.right, insets.bottom)
+        // Morrowa fix: the bottom nav-bar inset is deliberately NOT applied here. Reserving it on
+        // the root clipped the grid's last row against the nav bar (its label was cut off and the
+        // list bled into the nav area). It now lives as scroll padding on the RecyclerView
+        // (buildGrid) and on the action bar (buildActionBar), so the last row can scroll fully
+        // clear. Applying it in both places would double-count the inset.
+        setPadding(insets.left, insets.top, insets.right, 0)
     }
 
     private fun buildHeader() {
@@ -161,6 +166,12 @@ class DrawerEditOverlay(
             layoutManager = GridLayoutManager(launcher, columns)
             adapter = this@DrawerEditOverlay.adapter
             clipToPadding = false
+            // Morrowa fix: reserve the system nav-bar inset as bottom scroll padding (not on the
+            // root — see init) so the last row scrolls fully clear of the nav bar, matching AOSP
+            // AllApps (ActivityAllAppsContainerView#applyAdapterSideAndBottomPaddings). With
+            // clipToPadding=false the list still draws edge-to-edge behind the bar. The folder-edit
+            // sub view reuses this same RecyclerView, so it is covered too.
+            setPadding(0, 0, 0, launcher.deviceProfile.insets.bottom)
         }
         ItemTouchHelper(TouchCallback()).attachToRecyclerView(recyclerView)
         addView(recyclerView, LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f))
@@ -174,7 +185,10 @@ class DrawerEditOverlay(
         actionBar = LinearLayout(launcher).apply {
             orientation = HORIZONTAL
             gravity = Gravity.CENTER
-            setPadding(pad, pad / 2, pad, pad / 2)
+            // Morrowa fix: this bar sits at the very bottom while a selection is active, and the
+            // root no longer reserves the nav-bar inset (see init), so carry it here — otherwise
+            // the actions would sit under the nav bar. Shared with the folder-edit sub view.
+            setPadding(pad, pad / 2, pad, pad / 2 + launcher.deviceProfile.insets.bottom)
             visibility = GONE
         }
 

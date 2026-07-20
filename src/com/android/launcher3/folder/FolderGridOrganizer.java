@@ -95,40 +95,25 @@ public class FolderGridOrganizer {
 
     /**
      * Calculates the grid size such that {@param count} items can fit in the grid.
-     * The grid size is calculated such that countY <= countX and countX = ceil(sqrt(count)) while
-     * maintaining the restrictions of {@link #mMaxCountX} &amp; {@link #mMaxCountY}.
+     *
+     * Morrowa: the configured column count ({@link #mMaxCountX}) is treated as a fixed width
+     * instead of the AOSP square-ish auto-fit (countX = ceil(sqrt(count))). Each row is filled up
+     * to mMaxCountX and wraps to more rows as needed, so a folder with fewer items than the column
+     * count occupies a single row exactly that wide (e.g. 3 items with 5 columns → one row of 3).
+     * Paging still starts once a full page (mMaxItemsPerPage) is exceeded.
      */
     private void calculateGridSize(int count) {
-        boolean done;
-        int gridCountX = mCountX;
-        int gridCountY = mCountY;
-
+        int gridCountX;
+        int gridCountY;
         if (count >= mMaxItemsPerPage) {
             gridCountX = mMaxCountX;
             gridCountY = mMaxCountY;
-            done = true;
         } else {
-            done = false;
-        }
-
-        while (!done) {
-            int oldCountX = gridCountX;
-            int oldCountY = gridCountY;
-            if (gridCountX * gridCountY < count) {
-                // Current grid is too small, expand it
-                if ((gridCountX <= gridCountY || gridCountY == mMaxCountY)
-                        && gridCountX < mMaxCountX) {
-                    gridCountX++;
-                } else if (gridCountY < mMaxCountY) {
-                    gridCountY++;
-                }
-                if (gridCountY == 0) gridCountY++;
-            } else if ((gridCountY - 1) * gridCountX >= count && gridCountY >= gridCountX) {
-                gridCountY = Math.max(0, gridCountY - 1);
-            } else if ((gridCountX - 1) * gridCountY >= count) {
-                gridCountX = Math.max(0, gridCountX - 1);
+            gridCountX = Math.max(1, Math.min(mMaxCountX, count));
+            gridCountY = Math.max(1, (int) Math.ceil((double) count / gridCountX));
+            if (gridCountY > mMaxCountY) {
+                gridCountY = mMaxCountY;
             }
-            done = gridCountX == oldCountX && gridCountY == oldCountY;
         }
 
         mCountX = gridCountX;

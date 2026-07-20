@@ -38,20 +38,25 @@ class FolderPagedViewTest {
 
     @Test
     fun setContentSize() {
+        // Morrowa: folders use the configured column count as a fixed width (fill each row up to
+        // maxCountX, wrap to more rows) instead of the AOSP square-ish ceil(sqrt(count)) fit.
         assertCountXandY(
+            // Full page (>= maxCountX*maxCountY): still the full grid.
             TestCase(maxCountX = 4, maxCountY = 3, totalItems = 22),
             expectedCountX = 4,
             expectedCountY = 3
         )
         assertCountXandY(
+            // 8 items, 4 columns → two full-width rows (was 3x3 under the sqrt fit).
             TestCase(maxCountX = 4, maxCountY = 3, totalItems = 8),
-            expectedCountX = 3,
-            expectedCountY = 3
+            expectedCountX = 4,
+            expectedCountY = 2
         )
         assertCountXandY(
+            // Fewer items than columns → a single row exactly that wide (was 2x2).
             TestCase(maxCountX = 4, maxCountY = 3, totalItems = 3),
-            expectedCountX = 2,
-            expectedCountY = 2
+            expectedCountX = 3,
+            expectedCountY = 1
         )
     }
 

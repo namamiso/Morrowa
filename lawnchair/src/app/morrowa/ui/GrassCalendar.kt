@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -16,6 +17,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
@@ -67,11 +69,21 @@ fun GrassCalendar(
                     contentAlignment = Alignment.CenterStart,
                 ) {
                     monthLabels[weekStart]?.let { label ->
+                        // The label ("1月") is wider and taller than the cell-sized reserved slot.
+                        // The slot keeps every week column's day cells vertically aligned, so instead
+                        // of shrinking it (which clipped "月" horizontally and the digit's bottom half
+                        // vertically) we let the text overflow the slot without being measured into it.
                         Text(
                             text = label,
                             color = Color.White.copy(alpha = 0.72f),
                             fontSize = 10.sp,
                             maxLines = 1,
+                            softWrap = false,
+                            overflow = TextOverflow.Visible,
+                            modifier = Modifier.wrapContentSize(
+                                align = Alignment.CenterStart,
+                                unbounded = true,
+                            ),
                         )
                     }
                 }

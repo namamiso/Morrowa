@@ -1,5 +1,6 @@
 package app.morrowa.ui
 
+import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
@@ -54,6 +55,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import app.morrowa.HabitDay
 import app.morrowa.HabitViewModel
+import app.morrowa.MorrowaBackupActivity
 import app.morrowa.data.HabitEntity
 import java.time.LocalDate
 import java.time.ZoneId
@@ -66,6 +68,7 @@ private val HabitChip = Color(0xFF9A8465)
 
 @Composable
 fun HabitScreen(viewModel: HabitViewModel) {
+    val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
@@ -90,7 +93,6 @@ fun HabitScreen(viewModel: HabitViewModel) {
     var selectedHabitId by remember { mutableStateOf<Long?>(null) }
     var alarmTarget by remember { mutableStateOf<HabitEntity?>(null) }
     var showTrash by remember { mutableStateOf(false) }
-    var showBackup by remember { mutableStateOf(false) }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -121,7 +123,11 @@ fun HabitScreen(viewModel: HabitViewModel) {
                         fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(onClick = { showBackup = true }) {
+                    IconButton(
+                        onClick = {
+                            context.startActivity(Intent(context, MorrowaBackupActivity::class.java))
+                        },
+                    ) {
                         Icon(
                             imageVector = Icons.Rounded.Backup,
                             contentDescription = "バックアップ",
@@ -276,13 +282,6 @@ fun HabitScreen(viewModel: HabitViewModel) {
                     onDeletePermanently = { viewModel.deleteHabitPermanently(it) },
                     onBack = { showTrash = false },
                     backgroundColor = HabitBackground,
-                )
-            }
-
-            if (showBackup) {
-                BackupScreen(
-                    backgroundColor = HabitBackground,
-                    onBack = { showBackup = false },
                 )
             }
         }

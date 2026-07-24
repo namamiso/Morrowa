@@ -84,6 +84,11 @@
         </activity>
 
         <activity
+            android:name="app.morrowa.MorrowaBackupActivity"
+            android:exported="false"
+            android:theme="@style/Theme.Lawnchair" />
+
+        <activity
             android:label="@string/lawnchair_actions"
             android:icon="@mipmap/ic_launcher_home"
             android:name="app.lawnchair.gestures.ui.LawnchairShortcutActivity"

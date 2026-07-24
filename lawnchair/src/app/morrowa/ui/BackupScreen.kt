@@ -43,6 +43,7 @@ import app.morrowa.data.MorrowaBackup
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -53,6 +54,8 @@ fun BackupScreen(
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val backupRepository = remember(context) { BackupRepository(context) }
+    val alarmRepository = remember(context) { AlarmRepository(context) }
     var isWorking by remember { mutableStateOf(false) }
     var statusMessage by remember { mutableStateOf<String?>(null) }
     var importUri by remember { mutableStateOf<Uri?>(null) }
@@ -65,10 +68,10 @@ fun BackupScreen(
         statusMessage = null
         scope.launch {
             runCatching {
-                val repo = BackupRepository(context)
-                val data = withContext(Dispatchers.IO) { repo.exportAll() }
-                val json = MorrowaBackup.serialize(data)
-                withContext(Dispatchers.IO) {
+                val json = withContext(Dispatchers.IO) {
+                    MorrowaBackup.serialize(backupRepository.exportAll())
+                }
+                withContext(NonCancellable + Dispatchers.IO) {
                     context.contentResolver.openOutputStream(uri)?.use {
                         it.write(json.toByteArray())
                     } ?: error("ファイルを開けませんでした")
@@ -197,11 +200,12 @@ fun BackupScreen(
                                 ?.use { it.readText() }
                                 ?: error("ファイルを読み込めませんでした")
                         }
-                        val data = MorrowaBackup.deserialize(json)
-                        val repo = BackupRepository(context)
-                        withContext(Dispatchers.IO) {
-                            val oldAlarms = AlarmRepository(context).getAllAlarms()
-                            repo.importAll(data)
+                        val data = withContext(Dispatchers.IO) {
+                            MorrowaBackup.deserialize(json)
+                        }
+                        withContext(NonCancellable + Dispatchers.IO) {
+                            val oldAlarms = alarmRepository.getAllAlarms()
+                            backupRepository.importAll(data)
                             MorrowaAlarmRescheduler.cancelAlarms(context, oldAlarms)
                             AlarmScheduler.cancelIncompleteHabitNotification(context)
                             MorrowaAlarmRescheduler.rescheduleAll(context)

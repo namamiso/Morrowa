@@ -1414,9 +1414,9 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
     protected void updateIsBeingDraggedOnTouchDown(MotionEvent ev) {
         mXDown = ev.getX();
         mYDown = ev.getY();
-        mIsEventOverMorrowaHorizontalScroller = isEventOverMorrowaScroller(ev);
 
         super.updateIsBeingDraggedOnTouchDown(ev);
+        mIsEventOverMorrowaHorizontalScroller = isEventOverMorrowaScroller(ev);
         if (mIsEventOverMorrowaHorizontalScroller) {
             endPageDragOnTouchDown();
         }
@@ -1439,7 +1439,7 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
     }
 
     private boolean isEventOverMorrowaScroller(MotionEvent ev) {
-        CellLayout target = (CellLayout) getChildAt(mCurrentPage);
+        CellLayout target = (CellLayout) getChildAt(getNextPage());
         if (target == null || target.getShortcutsAndWidgets() == null)
             return false;
         ShortcutAndWidgetContainer container = target.getShortcutsAndWidgets();

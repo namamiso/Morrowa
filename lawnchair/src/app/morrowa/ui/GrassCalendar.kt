@@ -43,8 +43,11 @@ fun GrassCalendar(
 ) {
     val registry = LocalMorrowaScrollerRegistry.current
     val registryKey = remember { Any() }
+    val lastBounds = remember { arrayOf<RectF?>(null) }
     DisposableEffect(registry, registerHitRect) {
-        if (!registerHitRect) {
+        if (registerHitRect) {
+            lastBounds[0]?.let { registry?.publish(registryKey, it) }
+        } else {
             registry?.remove(registryKey)
         }
         onDispose {
@@ -74,11 +77,12 @@ fun GrassCalendar(
 
     LazyRow(
         modifier = modifier.onGloballyPositioned { coordinates ->
+            val bounds = coordinates.boundsInRoot()
+            lastBounds[0] = RectF(bounds.left, bounds.top, bounds.right, bounds.bottom)
             if (registerHitRect) {
-                val bounds = coordinates.boundsInRoot()
                 registry?.publish(
                     registryKey,
-                    RectF(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                    lastBounds[0]!!,
                 )
             } else {
                 registry?.remove(registryKey)

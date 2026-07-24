@@ -256,6 +256,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
                                             .fillMaxWidth()
                                             .background(HabitPanelBackground, RoundedCornerShape(12.dp))
                                             .padding(10.dp),
+                                        registerHitRect = !showTrash,
                                     )
                                 }
                             }

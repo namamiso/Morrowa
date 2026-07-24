@@ -72,6 +72,12 @@ interface HabitDao {
     @Query("SELECT * FROM habit_completions WHERE habitId = :habitId")
     fun getCompletions(habitId: Long): Flow<List<HabitCompletionEntity>>
 
+    @Query(
+        "SELECT DISTINCT c.habitDay FROM habit_completions c " +
+            "JOIN habits h ON h.id = c.habitId WHERE h.deletedAt IS NULL",
+    )
+    fun getAllCompletedDays(): Flow<List<String>>
+
     @Query("SELECT * FROM habit_completions WHERE habitDay = :habitDay")
     fun getCompletionsByDay(habitDay: String): Flow<List<HabitCompletionEntity>>
 

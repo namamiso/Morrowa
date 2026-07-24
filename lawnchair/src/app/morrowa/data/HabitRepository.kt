@@ -83,6 +83,8 @@ class HabitRepository(context: Context) {
 
     fun getCompletions(habitId: Long): Flow<List<HabitCompletionEntity>> = dao.getCompletions(habitId)
 
+    fun getAllCompletedDays(): Flow<List<String>> = dao.getAllCompletedDays()
+
     fun getCompletionsByDay(
         habitDay: String,
     ): Flow<List<HabitCompletionEntity>> = dao.getCompletionsByDay(habitDay)

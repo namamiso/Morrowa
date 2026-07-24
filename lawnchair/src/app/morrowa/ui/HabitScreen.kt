@@ -62,6 +62,7 @@ private val HabitChip = Color(0xFF9A8465)
 fun HabitScreen(viewModel: HabitViewModel) {
     val habits by viewModel.activeHabits.collectAsState()
     val completions by viewModel.completions.collectAsState()
+    val completedDays by viewModel.completedDays.collectAsState()
     val todayHabitDay by viewModel.habitDay.collectAsState()
     val today = remember(todayHabitDay) {
         LocalDate.parse(todayHabitDay)
@@ -125,9 +126,9 @@ fun HabitScreen(viewModel: HabitViewModel) {
                 Spacer(modifier = Modifier.height(10.dp))
 
                 GrassCalendar(
-                    completedDays = emptySet(),
+                    completedDays = completedDays,
                     todayHabitDay = todayHabitDay,
-                    onDayToggle = {},
+                    onDayToggle = null,
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(HabitPanelBackground, RoundedCornerShape(12.dp))
@@ -216,9 +217,11 @@ fun HabitScreen(viewModel: HabitViewModel) {
                                     },
                                 )
                                 if (selectedHabitId == habit.id) {
-                                    val completionsList by viewModel.getCompletionsFlow(habit.id)
+                                    val completionsFlow = remember(habit.id) {
+                                        viewModel.getCompletionsFlow(habit.id)
+                                    }
+                                    val completionsList by completionsFlow
                                         .collectAsState(initial = emptyList())
-                                    val todayHabitDay by viewModel.habitDay.collectAsState()
                                     GrassCalendar(
                                         completedDays = completionsList.map { it.habitDay }.toSet(),
                                         todayHabitDay = todayHabitDay,

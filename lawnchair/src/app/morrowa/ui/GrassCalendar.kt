@@ -36,7 +36,7 @@ import kotlin.math.abs
 fun GrassCalendar(
     completedDays: Set<String>,
     todayHabitDay: String,
-    onDayToggle: (habitDay: String) -> Unit,
+    onDayToggle: ((habitDay: String) -> Unit)?,
     modifier: Modifier = Modifier,
     cellSize: Dp = 14.dp,
     monthLabelHeight: Dp = 16.dp,
@@ -134,7 +134,7 @@ fun GrassCalendar(
                         .clip(RoundedCornerShape(3.dp))
                         .background(color)
                         .let { base ->
-                            if (isFuture) {
+                            if (isFuture || onDayToggle == null) {
                                 base
                             } else {
                                 base.clickable { onDayToggle(habitDay) }

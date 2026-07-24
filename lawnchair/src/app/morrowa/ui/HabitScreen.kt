@@ -158,6 +158,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
                     cellSize = 9.dp,
                     monthLabelHeight = 12.dp,
                     cellSpacing = 2.dp,
+                    registerHitRect = !showTrash,
                 )
                 Spacer(modifier = Modifier.height(12.dp))
 

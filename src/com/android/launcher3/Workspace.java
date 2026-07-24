@@ -281,6 +281,7 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
     private float mYDown;
     private View mFirstPagePinnedItem;
     private boolean mIsEventOverFirstPagePinnedItem;
+    private boolean mIsEventOverMorrowaHorizontalScroller;
 
     final static float START_DAMPING_TOUCH_SLOP_ANGLE = (float) Math.PI / 6;
     final static float MAX_SWIPE_ANGLE = (float) Math.PI / 3;
@@ -1411,10 +1412,15 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
 
     @Override
     protected void updateIsBeingDraggedOnTouchDown(MotionEvent ev) {
-        super.updateIsBeingDraggedOnTouchDown(ev);
-
         mXDown = ev.getX();
         mYDown = ev.getY();
+        mIsEventOverMorrowaHorizontalScroller = isEventOverMorrowaScroller(ev);
+
+        super.updateIsBeingDraggedOnTouchDown(ev);
+        if (mIsEventOverMorrowaHorizontalScroller) {
+            endPageDragOnTouchDown();
+        }
+
         if (mFirstPagePinnedItem != null) {
             final float[] tempFXY = new float[2];
             tempFXY[0] = mXDown;
@@ -1430,6 +1436,25 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
         if (!mIsEventOverFirstPagePinnedItem) {
             mIsEventOverFirstPagePinnedItem = isEventOverQsb(mXDown, mYDown);
         }
+    }
+
+    private boolean isEventOverMorrowaScroller(MotionEvent ev) {
+        CellLayout target = (CellLayout) getChildAt(mCurrentPage);
+        if (target == null || target.getShortcutsAndWidgets() == null)
+            return false;
+        ShortcutAndWidgetContainer container = target.getShortcutsAndWidgets();
+        for (int i = 0; i < container.getChildCount(); i++) {
+            View child = container.getChildAt(i);
+            if (!(child instanceof MorrowaWorkspacePageView))
+                continue;
+
+            mTempFXY[0] = ev.getX();
+            mTempFXY[1] = ev.getY();
+            Utilities.mapCoordInSelfToDescendant(child, this, mTempFXY);
+            return ((MorrowaWorkspacePageView) child)
+                    .isPointOverHorizontalScroller(mTempFXY[0], mTempFXY[1]);
+        }
+        return false;
     }
 
     private boolean isEventOverQsb(float x, float y) {
@@ -1459,7 +1484,8 @@ public class Workspace<T extends View & PageIndicator> extends PagedView<T>
 
     @Override
     protected void determineScrollingStart(MotionEvent ev) {
-        if (!isFinishedSwitchingState() || mIsEventOverFirstPagePinnedItem) return;
+        if (!isFinishedSwitchingState() || mIsEventOverFirstPagePinnedItem
+                || mIsEventOverMorrowaHorizontalScroller) return;
 
         float deltaX = ev.getX() - mXDown;
         float absDeltaX = Math.abs(deltaX);

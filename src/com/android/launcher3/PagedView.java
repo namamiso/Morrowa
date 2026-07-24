@@ -1166,6 +1166,14 @@ public abstract class PagedView<T extends View & PageIndicator> extends ViewGrou
         }
     }
 
+    protected void endPageDragOnTouchDown() {
+        if (mIsBeingDragged) {
+            setCurrentPage(getNextPage());
+            pageEndTransition();
+            mIsBeingDragged = false;
+        }
+    }
+
     public boolean isHandlingTouch() {
         return mIsBeingDragged;
     }

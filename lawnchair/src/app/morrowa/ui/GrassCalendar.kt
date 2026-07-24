@@ -1,9 +1,8 @@
 package app.morrowa.ui
 
+import android.graphics.RectF
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,23 +13,22 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerEventPass
-import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
+import app.morrowa.LocalMorrowaScrollerRegistry
 import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
-import kotlin.math.abs
 
 @Composable
 fun GrassCalendar(
@@ -41,7 +39,19 @@ fun GrassCalendar(
     cellSize: Dp = 14.dp,
     monthLabelHeight: Dp = 16.dp,
     cellSpacing: Dp = 2.dp,
+    registerHitRect: Boolean = true,
 ) {
+    val registry = LocalMorrowaScrollerRegistry.current
+    val registryKey = remember { Any() }
+    DisposableEffect(registry, registerHitRect) {
+        if (!registerHitRect) {
+            registry?.remove(registryKey)
+        }
+        onDispose {
+            registry?.remove(registryKey)
+        }
+    }
+
     val year = LocalDate.now(ZoneId.of("Asia/Tokyo")).year
     val weeks = remember(year) {
         val firstSunday = LocalDate.of(year, 1, 1).let { jan1 ->
@@ -62,32 +72,16 @@ fun GrassCalendar(
         }
     }
 
-    // The grid lives inside a Morrowa Habit/ToDo page, which is a normal Workspace (PagedView)
-    // page. A horizontal drag on the grid would otherwise be intercepted by the workspace and
-    // turned into a home-screen page swipe. Once we detect the drag is horizontal, tell the
-    // parent chain (up to the Workspace) not to intercept, so the grid's own scroll always wins.
-    // Vertical gestures are left untouched, so full-screen swipe actions still work off the grid.
-    val hostView = LocalView.current
     LazyRow(
-        modifier = modifier.pointerInput(Unit) {
-            val touchSlop = viewConfiguration.touchSlop
-            awaitEachGesture {
-                val down = awaitFirstDown(requireUnconsumed = false)
-                var totalX = 0f
-                var totalY = 0f
-                var claimed = false
-                while (!claimed) {
-                    // Observe on the Initial pass so we decide before the LazyRow consumes moves.
-                    val event = awaitPointerEvent(PointerEventPass.Initial)
-                    val change = event.changes.firstOrNull { it.id == down.id }
-                    if (change == null || !change.pressed) break
-                    totalX += change.positionChange().x
-                    totalY += change.positionChange().y
-                    if (abs(totalX) > touchSlop && abs(totalX) >= abs(totalY)) {
-                        hostView.parent?.requestDisallowInterceptTouchEvent(true)
-                        claimed = true
-                    }
-                }
+        modifier = modifier.onGloballyPositioned { coordinates ->
+            if (registerHitRect) {
+                val bounds = coordinates.boundsInRoot()
+                registry?.publish(
+                    registryKey,
+                    RectF(bounds.left, bounds.top, bounds.right, bounds.bottom),
+                )
+            } else {
+                registry?.remove(registryKey)
             }
         },
         horizontalArrangement = Arrangement.spacedBy(cellSpacing),

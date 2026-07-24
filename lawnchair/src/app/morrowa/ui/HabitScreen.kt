@@ -36,6 +36,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,10 +49,15 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import app.morrowa.HabitDay
 import app.morrowa.HabitViewModel
 import app.morrowa.data.HabitEntity
 import java.time.LocalDate
 import java.time.ZoneId
+import kotlinx.coroutines.delay
 
 private val HabitBackground = Color.Transparent
 private val HabitPanelBackground = Color(0xCC1A1A1A)
@@ -60,6 +66,16 @@ private val HabitChip = Color(0xFF9A8465)
 
 @Composable
 fun HabitScreen(viewModel: HabitViewModel) {
+    val lifecycleOwner = LocalLifecycleOwner.current
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                viewModel.refreshHabitDay()
+                delay(HabitDay.millisUntilNextBoundary())
+            }
+        }
+    }
+
     val habits by viewModel.activeHabits.collectAsState()
     val completions by viewModel.completions.collectAsState()
     val completedDays by viewModel.completedDays.collectAsState()

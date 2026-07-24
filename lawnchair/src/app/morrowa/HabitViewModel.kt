@@ -70,7 +70,9 @@ class HabitViewModel(
 
     fun checkHabit(habitId: Long) {
         viewModelScope.launch {
-            repository.toggleCompletion(habitId, habitDay.value)
+            val day = HabitDay.today()
+            _habitDay.value = day
+            repository.toggleCompletion(habitId, day)
         }
     }
 

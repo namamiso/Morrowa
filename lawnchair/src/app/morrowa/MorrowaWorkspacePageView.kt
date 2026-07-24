@@ -13,17 +13,22 @@ class MorrowaWorkspacePageView(
     page: MorrowaPage,
 ) : FrameLayout(context) {
 
+    private val app = context.applicationContext as Application
+    private val habitViewModel =
+        if (page == MorrowaPage.HABIT) HabitViewModel(app) else null
+    private val todoViewModel =
+        if (page == MorrowaPage.TODO) ToDoViewModel(app) else null
+
     init {
         isClickable = true
         isLongClickable = false
 
-        val app = context.applicationContext as Application
         val composeView = ComposeView(context).also { view ->
             view.setViewCompositionStrategy(ViewCompositionStrategy.DisposeOnDetachedFromWindow)
             view.setContent {
                 when (page) {
-                    MorrowaPage.HABIT -> HabitScreen(viewModel = HabitViewModel(app))
-                    MorrowaPage.TODO -> ToDoScreen(viewModel = ToDoViewModel(app))
+                    MorrowaPage.HABIT -> HabitScreen(viewModel = requireNotNull(habitViewModel))
+                    MorrowaPage.TODO -> ToDoScreen(viewModel = requireNotNull(todoViewModel))
                     MorrowaPage.HOME,
                     MorrowaPage.WIDGET_BLANK,
                     -> Unit

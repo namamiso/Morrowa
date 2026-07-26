@@ -67,6 +67,7 @@
 | 987a24aad0 | 4 | ドラッグ並び替え(Habit ハンバーガー→ハンドル置換、ToDo はハンドル新設、reorderable 3.1.0、ローカルリスト+isReordering ゲート、sortOrder を 0..n-1 でトランザクション永続化。スキーマ変更なし) |
 | 09c4e3ffda | 追補 | レビュー指摘反映(ToDo ハンドルの見た目を Habit と統一 / メモの \r 除去 / TrashBackground を TrashScreen に一本化) |
 | (後日追補) | 3' | ユーザーFB「黒すぎる」→ 本物のすりガラス化: ゴミ箱表示中は背面コンテンツ(一覧+FAB)に blur(20dp) を掛け、スクリムを 60%(0x99) に薄化。blur が no-op の API 30 以下は従来の 95% を維持。BottomSheet と同じ背面ブラーパターン |
+| (後日追補) | 4' | 実機FB「並び替えドラッグが効かずドロワー/通知が開く」→ DragLayer の TouchController が Compose のドラッグ判定より先に縦スワイプを奪っていた(レビューの実機確認推奨項目が的中)。ハンドルへの DOWN で即 requestDisallowInterceptTouchEvent(true)(LauncherAppWidgetHostView と同じ定石)を打つ `claimGestureFromLauncher()` を新設し両ハンドルに適用。ハンドルはドラッグ専用領域のため Bug1 で却下した DOWN 即クレーム方式の副作用(縦ジェスチャ殺し)は該当しない |
 
 ## 独立レビュー結果 (2026-07-26)
 

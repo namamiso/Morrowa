@@ -91,9 +91,9 @@ fun ToDoEditDialog(
                 )
                 OutlinedTextField(
                     value = memo,
-                    onValueChange = { memo = it.take(100) },
+                    onValueChange = { memo = it.replace("\n", "").take(100) },
                     label = { Text(text = "メモ") },
-                    singleLine = true,
+                    maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 TextButton(onClick = { showDatePicker() }) {

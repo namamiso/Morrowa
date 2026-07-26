@@ -2,8 +2,7 @@ package app.morrowa.data
 
 import android.content.Context
 import androidx.room.withTransaction
-import java.time.LocalDate
-import java.time.ZoneId
+import app.morrowa.HabitDay
 import kotlinx.coroutines.flow.Flow
 import org.json.JSONArray
 
@@ -45,7 +44,7 @@ class HabitRepository(context: Context) {
                     ruleType = ruleType,
                     weekdays = weekdays.toJsonArrayString(),
                     monthDays = monthDays.toJsonArrayString(),
-                    startDate = todayIsoDate(),
+                    startDate = HabitDay.today(),
                 ),
             )
             habitId
@@ -73,7 +72,7 @@ class HabitRepository(context: Context) {
         monthDays: List<Int>,
     ) {
         db.withTransaction {
-            val today = todayIsoDate()
+            val today = HabitDay.today()
             dao.getCurrentRuleOnce(habitId)?.let { currentRule ->
                 dao.updateRule(currentRule.copy(endDate = today))
             }
@@ -118,9 +117,35 @@ class HabitRepository(context: Context) {
     }
 
     suspend fun archiveHabit(habitId: Long) {
-        val now = System.currentTimeMillis()
-        dao.getHabit(habitId)?.let { habit ->
-            dao.update(habit.copy(isArchived = true, updatedAt = now))
+        db.withTransaction {
+            val now = System.currentTimeMillis()
+            val today = HabitDay.today()
+            dao.getHabit(habitId)?.let { habit ->
+                dao.getCurrentRuleOnce(habitId)?.let { currentRule ->
+                    dao.updateRule(currentRule.copy(endDate = today))
+                }
+                dao.update(habit.copy(isArchived = true, updatedAt = now))
+            }
+        }
+    }
+
+    suspend fun unarchiveHabit(habitId: Long) {
+        db.withTransaction {
+            val now = System.currentTimeMillis()
+            dao.getHabit(habitId)?.let { habit ->
+                if (dao.getCurrentRuleOnce(habitId) == null) {
+                    dao.getLastRule(habitId)?.let { lastRule ->
+                        dao.insertRule(
+                            lastRule.copy(
+                                id = 0,
+                                startDate = HabitDay.today(),
+                                endDate = null,
+                            ),
+                        )
+                    }
+                }
+                dao.update(habit.copy(isArchived = false, updatedAt = now))
+            }
         }
     }
 
@@ -154,11 +179,5 @@ class HabitRepository(context: Context) {
         dao.deleteOldHabits(thirtyDaysAgo)
     }
 
-    private fun todayIsoDate(): String = LocalDate.now(JST_ZONE_ID).toString()
-
     private fun List<Int>.toJsonArrayString(): String = JSONArray(this).toString()
-
-    companion object {
-        private val JST_ZONE_ID = ZoneId.of("Asia/Tokyo")
-    }
 }

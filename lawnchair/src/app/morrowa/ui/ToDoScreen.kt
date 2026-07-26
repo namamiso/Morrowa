@@ -152,7 +152,9 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
                                 ReorderableItem(reorderableState, key = todo.id) {
                                     ToDoItem(
                                         todo = todo,
-                                        dragHandleModifier = Modifier.draggableHandle(
+                                        dragHandleModifier = Modifier
+                                            .claimGestureFromLauncher()
+                                            .draggableHandle(
                                             onDragStarted = {
                                                 isReordering = true
                                             },

@@ -245,7 +245,9 @@ fun HabitScreen(viewModel: HabitViewModel) {
                                             habit = habit,
                                             completed = completions[habit.id] == true,
                                             isTargetToday = targetToday[habit.id] ?: true,
-                                            dragHandleModifier = Modifier.draggableHandle(
+                                            dragHandleModifier = Modifier
+                                                .claimGestureFromLauncher()
+                                                .draggableHandle(
                                                 onDragStarted = {
                                                     isReordering = true
                                                     selectedHabitId = null

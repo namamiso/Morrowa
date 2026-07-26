@@ -13,13 +13,16 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
 import androidx.compose.material.icons.rounded.Delete
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -30,6 +33,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -48,6 +52,8 @@ import app.morrowa.data.ToDoEntity
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 private val ToDoBackground = Color.Transparent
 private val ToDoContainerColor = Color(0xCC1A1A1A)
@@ -62,6 +68,19 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
     var deletingTodo by remember { mutableStateOf<ToDoEntity?>(null) }
     var alarmTarget by remember { mutableStateOf<ToDoEntity?>(null) }
     var showTrash by remember { mutableStateOf(false) }
+    var localTodos by remember { mutableStateOf(todos) }
+    var isReordering by remember { mutableStateOf(false) }
+    LaunchedEffect(todos) {
+        if (!isReordering) {
+            localTodos = todos
+        }
+    }
+    val lazyListState = rememberLazyListState()
+    val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        localTodos = localTodos.toMutableList().apply {
+            add(to.index, removeAt(from.index))
+        }
+    }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -102,7 +121,7 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
                 }
                 Spacer(modifier = Modifier.height(10.dp))
 
-                if (todos.isEmpty()) {
+                if (localTodos.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -116,20 +135,32 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
                     }
                 } else {
                     LazyColumn(
+                        state = lazyListState,
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(bottom = 96.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(
-                            items = todos,
+                            items = localTodos,
                             key = { todo -> todo.id },
                         ) { todo ->
-                            ToDoItem(
-                                todo = todo,
-                                onEdit = { editingTodo = todo },
-                                onAlarmClick = { alarmTarget = todo },
-                                onDelete = { deletingTodo = todo },
-                            )
+                            ReorderableItem(reorderableState, key = todo.id) {
+                                ToDoItem(
+                                    todo = todo,
+                                    dragHandleModifier = Modifier.draggableHandle(
+                                        onDragStarted = {
+                                            isReordering = true
+                                        },
+                                        onDragStopped = {
+                                            viewModel.reorder(localTodos.map { it.id })
+                                            isReordering = false
+                                        },
+                                    ),
+                                    onEdit = { editingTodo = todo },
+                                    onAlarmClick = { alarmTarget = todo },
+                                    onDelete = { deletingTodo = todo },
+                                )
+                            }
                         }
                     }
                 }
@@ -228,6 +259,7 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
 @Composable
 private fun ToDoItem(
     todo: ToDoEntity,
+    dragHandleModifier: Modifier,
     onEdit: () -> Unit,
     onAlarmClick: () -> Unit,
     onDelete: () -> Unit,
@@ -265,6 +297,16 @@ private fun ToDoItem(
                         text = formatScheduledDate(it),
                         color = Color(0xFFE6E8E1).copy(alpha = 0.72f),
                         fontSize = 14.sp,
+                    )
+                }
+                IconButton(
+                    onClick = {},
+                    modifier = dragHandleModifier.size(40.dp),
+                ) {
+                    Icon(
+                        imageVector = Icons.Rounded.DragHandle,
+                        contentDescription = "並び替え",
+                        tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
                     )
                 }
             }

@@ -39,6 +39,9 @@ interface HabitDao {
     @Update
     suspend fun update(habit: HabitEntity)
 
+    @Query("UPDATE habits SET sortOrder = :sortOrder WHERE id = :id")
+    suspend fun updateSortOrder(id: Long, sortOrder: Int)
+
     @Query("DELETE FROM habits")
     suspend fun deleteAllHabits()
 

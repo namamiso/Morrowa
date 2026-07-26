@@ -56,6 +56,14 @@ class HabitRepository(context: Context) {
         dao.update(habit.copy(updatedAt = System.currentTimeMillis()))
     }
 
+    suspend fun reorderHabits(orderedIds: List<Long>) {
+        db.withTransaction {
+            orderedIds.forEachIndexed { index, id ->
+                dao.updateSortOrder(id, index)
+            }
+        }
+    }
+
     fun getCurrentRule(habitId: Long): Flow<HabitRuleEntity?> = dao.getCurrentRule(habitId)
 
     suspend fun setRule(

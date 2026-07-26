@@ -1,6 +1,7 @@
 package app.morrowa.data
 
 import android.content.Context
+import androidx.room.withTransaction
 import kotlinx.coroutines.flow.Flow
 
 class ToDoRepository(context: Context) {
@@ -29,6 +30,14 @@ class ToDoRepository(context: Context) {
 
     suspend fun updateTodo(todo: ToDoEntity) {
         dao.update(todo.copy(updatedAt = System.currentTimeMillis()))
+    }
+
+    suspend fun reorderTodos(orderedIds: List<Long>) {
+        db.withTransaction {
+            orderedIds.forEachIndexed { index, id ->
+                dao.updateSortOrder(id, index)
+            }
+        }
     }
 
     suspend fun moveToTrash(todoId: Long) {

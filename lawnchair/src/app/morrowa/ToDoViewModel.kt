@@ -44,6 +44,12 @@ class ToDoViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
 
+    fun reorder(orderedIds: List<Long>) {
+        viewModelScope.launch {
+            repository.reorderTodos(orderedIds)
+        }
+    }
+
     fun getAlarmFlow(todoId: Long): Flow<AlarmEntity?> =
         alarmRepository.getAlarmFlow(AlarmRepository.TYPE_TODO, todoId)
 

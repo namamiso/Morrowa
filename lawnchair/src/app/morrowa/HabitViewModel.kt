@@ -161,6 +161,12 @@ class HabitViewModel(
         }
     }
 
+    fun reorder(orderedIds: List<Long>) {
+        viewModelScope.launch {
+            repository.reorderHabits(orderedIds)
+        }
+    }
+
     private fun List<HabitCompletionEntity>.toCompletionMap(
         activeHabits: List<HabitEntity>,
     ): Map<Long, Boolean> {

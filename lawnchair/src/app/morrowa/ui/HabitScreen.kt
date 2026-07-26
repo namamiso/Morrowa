@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Add
@@ -26,7 +27,7 @@ import androidx.compose.material.icons.rounded.Backup
 import androidx.compose.material.icons.rounded.CalendarMonth
 import androidx.compose.material.icons.rounded.Check
 import androidx.compose.material.icons.rounded.Delete
-import androidx.compose.material.icons.rounded.Menu
+import androidx.compose.material.icons.rounded.DragHandle
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FloatingActionButton
@@ -60,6 +61,8 @@ import app.morrowa.data.HabitEntity
 import java.time.LocalDate
 import java.time.ZoneId
 import kotlinx.coroutines.delay
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.rememberReorderableLazyListState
 
 private val HabitBackground = Color.Transparent
 private val HabitPanelBackground = Color(0xCC1A1A1A)
@@ -94,6 +97,19 @@ fun HabitScreen(viewModel: HabitViewModel) {
     var selectedHabitId by remember { mutableStateOf<Long?>(null) }
     var alarmTarget by remember { mutableStateOf<HabitEntity?>(null) }
     var showTrash by remember { mutableStateOf(false) }
+    var localHabits by remember { mutableStateOf(habits) }
+    var isReordering by remember { mutableStateOf(false) }
+    LaunchedEffect(habits) {
+        if (!isReordering) {
+            localHabits = habits
+        }
+    }
+    val lazyListState = rememberLazyListState()
+    val reorderableState = rememberReorderableLazyListState(lazyListState) { from, to ->
+        localHabits = localHabits.toMutableList().apply {
+            add(to.index, removeAt(from.index))
+        }
+    }
 
     MaterialTheme(
         colorScheme = darkColorScheme(
@@ -191,7 +207,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
                 }
                 Spacer(modifier = Modifier.height(8.dp))
 
-                if (habits.isEmpty()) {
+                if (localHabits.isEmpty()) {
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -205,60 +221,73 @@ fun HabitScreen(viewModel: HabitViewModel) {
                     }
                 } else {
                     LazyColumn(
+                        state = lazyListState,
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(bottom = 64.dp),
                         verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(
-                            items = habits,
+                            items = localHabits,
                             key = { habit -> habit.id },
                         ) { habit ->
-                            Column {
-                                HabitItem(
-                                    habit = habit,
-                                    completed = completions[habit.id] == true,
-                                    onToggle = { viewModel.checkHabit(habit.id) },
-                                    onCalendarClick = {
-                                        selectedHabitId = if (selectedHabitId == habit.id) {
-                                            null
-                                        } else {
-                                            habit.id
-                                        }
-                                    },
-                                    onEdit = { editingHabit = habit },
-                                    onAlarmClick = { alarmTarget = habit },
-                                    onArchive = {
-                                        confirmAction = ConfirmAction(
-                                            habit = habit,
-                                            kind = ConfirmActionKind.Archive,
-                                        )
-                                    },
-                                    onDelete = {
-                                        confirmAction = ConfirmAction(
-                                            habit = habit,
-                                            kind = ConfirmActionKind.Delete,
-                                        )
-                                    },
-                                )
-                                if (selectedHabitId == habit.id) {
-                                    val completionsFlow = remember(habit.id) {
-                                        viewModel.getCompletionsFlow(habit.id)
-                                    }
-                                    val completionsList by completionsFlow
-                                        .collectAsState(initial = emptyList())
-                                    GrassCalendar(
-                                        completedDays = completionsList.map { it.habitDay }.toSet(),
-                                        todayHabitDay = todayHabitDay,
-                                        onDayToggle = { day ->
-                                            viewModel.toggleCompletionForDay(habit.id, day)
+                            ReorderableItem(reorderableState, key = habit.id) {
+                                Column {
+                                    HabitItem(
+                                        habit = habit,
+                                        completed = completions[habit.id] == true,
+                                        dragHandleModifier = Modifier.draggableHandle(
+                                            onDragStarted = {
+                                                isReordering = true
+                                                selectedHabitId = null
+                                            },
+                                            onDragStopped = {
+                                                viewModel.reorder(localHabits.map { it.id })
+                                                isReordering = false
+                                            },
+                                        ),
+                                        onToggle = { viewModel.checkHabit(habit.id) },
+                                        onCalendarClick = {
+                                            selectedHabitId = if (selectedHabitId == habit.id) {
+                                                null
+                                            } else {
+                                                habit.id
+                                            }
                                         },
-                                        modifier = Modifier
-                                            .padding(top = 8.dp)
-                                            .fillMaxWidth()
-                                            .background(HabitPanelBackground, RoundedCornerShape(12.dp))
-                                            .padding(10.dp),
-                                        registerHitRect = !showTrash,
+                                        onEdit = { editingHabit = habit },
+                                        onAlarmClick = { alarmTarget = habit },
+                                        onArchive = {
+                                            confirmAction = ConfirmAction(
+                                                habit = habit,
+                                                kind = ConfirmActionKind.Archive,
+                                            )
+                                        },
+                                        onDelete = {
+                                            confirmAction = ConfirmAction(
+                                                habit = habit,
+                                                kind = ConfirmActionKind.Delete,
+                                            )
+                                        },
                                     )
+                                    if (selectedHabitId == habit.id) {
+                                        val completionsFlow = remember(habit.id) {
+                                            viewModel.getCompletionsFlow(habit.id)
+                                        }
+                                        val completionsList by completionsFlow
+                                            .collectAsState(initial = emptyList())
+                                        GrassCalendar(
+                                            completedDays = completionsList.map { it.habitDay }.toSet(),
+                                            todayHabitDay = todayHabitDay,
+                                            onDayToggle = { day ->
+                                                viewModel.toggleCompletionForDay(habit.id, day)
+                                            },
+                                            modifier = Modifier
+                                                .padding(top = 8.dp)
+                                                .fillMaxWidth()
+                                                .background(HabitPanelBackground, RoundedCornerShape(12.dp))
+                                                .padding(10.dp),
+                                            registerHitRect = !showTrash,
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -399,6 +428,7 @@ private fun japaneseDayOfWeek(date: LocalDate): String = when (date.dayOfWeek.va
 private fun HabitItem(
     habit: HabitEntity,
     completed: Boolean,
+    dragHandleModifier: Modifier,
     onToggle: () -> Unit,
     onCalendarClick: () -> Unit,
     onEdit: () -> Unit,
@@ -465,12 +495,12 @@ private fun HabitItem(
                 )
             }
             IconButton(
-                onClick = { menuExpanded = true },
-                modifier = Modifier.size(40.dp),
+                onClick = {},
+                modifier = dragHandleModifier.size(40.dp),
             ) {
                 Icon(
-                    imageVector = Icons.Rounded.Menu,
-                    contentDescription = "メニュー",
+                    imageVector = Icons.Rounded.DragHandle,
+                    contentDescription = "並び替え",
                     tint = Color(0xFFE6E8E1).copy(alpha = 0.38f),
                     modifier = Modifier.size(28.dp),
                 )

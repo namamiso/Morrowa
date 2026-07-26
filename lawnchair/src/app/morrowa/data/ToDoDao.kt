@@ -33,6 +33,9 @@ interface ToDoDao {
     @Update
     suspend fun update(todo: ToDoEntity)
 
+    @Query("UPDATE todos SET sortOrder = :sortOrder WHERE id = :id")
+    suspend fun updateSortOrder(id: Long, sortOrder: Int)
+
     @Query("DELETE FROM todos")
     suspend fun deleteAllTodos()
 

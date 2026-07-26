@@ -60,6 +60,12 @@ interface HabitDao {
     @Query("SELECT * FROM habit_rules WHERE habitId = :habitId ORDER BY startDate DESC, id DESC LIMIT 1")
     suspend fun getLastRule(habitId: Long): HabitRuleEntity?
 
+    @Query(
+        "UPDATE habit_rules SET endDate = :endDate WHERE endDate IS NULL " +
+            "AND habitId IN (SELECT id FROM habits WHERE isArchived = 1)",
+    )
+    suspend fun closeOpenRulesForArchivedHabits(endDate: String)
+
     @Query("SELECT * FROM habit_rules WHERE habitId = :habitId ORDER BY startDate ASC")
     fun getRuleHistory(habitId: Long): Flow<List<HabitRuleEntity>>
 

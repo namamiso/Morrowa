@@ -141,10 +141,14 @@ fun GrassCalendar(
                         .clip(RoundedCornerShape(3.dp))
                         .background(color)
                         .let { base ->
-                            if (isFuture || !isTargetDay || onDayToggle == null) {
-                                base
+                            // Non-target cells stay tappable while completed so stray
+                            // check-ins made before the off-day lockout can be cleared.
+                            val canToggle = !isFuture && onDayToggle != null &&
+                                (isTargetDay || habitDay in completedDays)
+                            if (canToggle) {
+                                base.clickable { onDayToggle!!(habitDay) }
                             } else {
-                                base.clickable { onDayToggle(habitDay) }
+                                base
                             }
                         }
 

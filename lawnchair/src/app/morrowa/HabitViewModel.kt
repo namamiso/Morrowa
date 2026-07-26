@@ -35,6 +35,12 @@ class HabitViewModel(
     private val _habitDay = MutableStateFlow(HabitDay.today())
     val habitDay: StateFlow<String> = _habitDay.asStateFlow()
 
+    init {
+        // Habits archived before rules learned to close on archive still have an
+        // open-ended rule and would count toward every future day's denominator.
+        viewModelScope.launch { repository.backfillArchivedRuleEnds() }
+    }
+
     val activeHabits: StateFlow<List<HabitEntity>> = repository.getActiveHabits()
         .stateIn(
             scope = viewModelScope,

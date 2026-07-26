@@ -136,6 +136,10 @@ class HabitRepository(context: Context) {
         }
     }
 
+    suspend fun backfillArchivedRuleEnds() {
+        dao.closeOpenRulesForArchivedHabits(HabitDay.today())
+    }
+
     suspend fun unarchiveHabit(habitId: Long) {
         db.withTransaction {
             val now = System.currentTimeMillis()

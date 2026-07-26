@@ -1,0 +1,48 @@
+# Morrowa 議事録: ホームの Google アイコン消失の恒久対策 (2026-07-26)
+
+統括: Claude (Fable 5) / 実装: Codex / 独立レビュー: サブエージェント1名
+
+## 経緯
+
+- 2026-07-22 の調査で原因確定済み(メモリ記録あり): 透明化・Morrowa 独自コードは無関係。Google アプリ (`com.google.android.googlequicksearchbox`) の自動更新/コンポーネント切替が引き金で、AOSP 標準の `PackageUpdatedTask` がホーム DB からアイテムを削除する。当時は「置き直し or 自動更新オフで十分」とし恒久対処は見送り。
+- 2026-07-26、ユーザーが恒久解決を要望。現行コードを再調査。
+
+## 追加調査で確定した削除メカニズム
+
+1. `onPackageChanged`(アプリ更新後や、Google アプリが起動 Activity エイリアスを有効/無効切替した時)→ `OP_UPDATE`(ModelLauncherCallbacks.kt:50-51)。
+2. その瞬間にパッケージの Activity 一覧から旧コンポーネントが消えていると `removedComponents` 入り(PackageUpdatedTask.java:151-164)。
+3. AOSP はまず修復(`updateWorkspaceItemIntent` = 新しい起動 Intent への書き換え、:482-498)を試みる。
+4. しかし切替中はパッケージに解決可能な起動 Activity が無く `getAppLaunchIntent` が null → 修復失敗。
+5. フォールバックの一括削除(:440-456)が**インストール済みパッケージのアイテムにも**発動し、アイコンが恒久に消える。
+
+欠陥の本質: 削除はアンインストール向けのフォールバックなのに、インストール済みパッケージの一時的なコンポーネント切替でも発動する。
+
+## 決定事項
+
+1. **パッケージが生きている限り削除しない**: 修復失敗時に `isPackageEnabled` が true なら `forceKeepShortcuts` に追加し一括削除から保護。false(無効化/アンインストール)は従来どおり削除。
+2. **自己修復の拡張**: stale コンポーネント(broadcast 対象パッケージの非空 Activity 一覧に cn が無い)を指すアイテムも修復対象にする。エイリアスが同名で復活すればそのまま正常化、恒久的に別コンポーネントへ変わっていれば後続 OP_UPDATE で Intent が書き換わる。
+3. **stale 判定は ITEM_TYPE_APPLICATION に限定**(統括レビューでの修正): 旧式ショートカット(ITEM_TYPE_SHORTCUT)は起動 Activity 以外を指し得るため、無条件に本体起動 Intent へ書き換えると pinned ショートカットを壊す。`removedComponents` 経路の修復は従来どおり全種別。
+4. 副作用として、起動 Activity を恒久的に失った(headless 化した)アプリのアイコンが押しても起動しない状態で残り得るが、極めて稀であり「勝手に消える」より良いと判断。
+
+## 実装
+
+- 変更は `PackageUpdatedTask.java` の走査ループ1分岐のみ(+ `activities` のホイスト)。Codex 実装 + 統括による ITEM_TYPE_APPLICATION 限定の修正。
+
+## 独立レビュー結果 (2026-07-26)
+
+致命的・要修正ゼロ、マージ可。軽微4件:
+1. deep/旧式ショートカットが「修復失敗+パッケージ有効」のとき従来の削除から保持に変わる — 意図(パッケージが生きている限り消さない)と整合、pinned shortcut の整理は ShortcutsChangedTask が別途担うため実害小。仕様変更として記録。
+2. 残余リスク: コンポーネント切替の窓(通常数秒〜数十秒)の最中にランチャープロセスが再起動すると、ローダー(`WorkspaceItemProcessor.kt:194-205` の APP_NO_LAUNCH_INTENT 削除)が先に消し得る。本修正は PackageUpdatedTask 経路のみカバー。実用上リスク低と判断し対応見送り。
+3. headless 化したアプリの死にアイコンはセッション内は残るが、次回ローダー実行で自然消滅(自己制限的)。
+4. ホイスト行への Morrowa マーキング → 対応済み。
+
+## 検証手順 (ユーザーの Mac でビルド後)
+
+1. 透明化した Google アイコンをホームに置き、Play ストアで Google アプリを手動更新(または `adb shell pm disable-user --user 0 com.google.android.googlequicksearchbox/<起動Activity>` → enable で切替を模擬)→ アイコンが消えないこと
+2. 適当なテストアプリをアンインストール → アイコンが従来どおり消えること
+3. 数日運用して夜間自動更新後もアイコンが残ること(本命の確認)
+4. 回帰: ドロワー、他アプリの更新、アプリ無効化時の挙動
+
+## 制約
+
+- この環境はビルド不可(ユーザーの Mac でビルド)。検証は静的レビューのみ。

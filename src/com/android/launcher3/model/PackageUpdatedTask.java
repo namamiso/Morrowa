@@ -254,6 +254,8 @@ public class PackageUpdatedTask implements ModelUpdateTask {
                     ComponentName cn = itemInfo.getTargetComponent();
                     if (cn != null && matcher.test(itemInfo)) {
                         String packageName = cn.getPackageName();
+                        // Morrowa: hoisted for the stale-target repair branch below.
+                        List<LauncherActivityInfo> activities = activitiesLists.get(packageName);
 
                         if (itemInfo.hasStatusFlag(WorkspaceItemInfo.FLAG_SUPPORTS_WEB_UI)) {
                             forceKeepShortcuts.add(itemInfo.id);
@@ -331,15 +333,22 @@ public class PackageUpdatedTask implements ModelUpdateTask {
                                 itemInfo.status = WorkspaceItemInfo.DEFAULT;
                                 infoUpdated = true;
                             }
-                        } else if (isNewApkAvailable && removedComponents.contains(cn)) {
+                        // Morrowa: repair stale targets, but keep them while the package is alive.
+                        } else if (isNewApkAvailable
+                                && (removedComponents.contains(cn)
+                                        || (itemInfo.itemType == Favorites.ITEM_TYPE_APPLICATION
+                                                && activities != null && !activities.isEmpty()
+                                                && activities.stream().noneMatch(activity ->
+                                                        activity.getComponentName().equals(cn))))) {
                             if (updateWorkspaceItemIntent(context, itemInfo, packageName)) {
                                 infoUpdated = true;
+                            } else if (context.getSystemService(LauncherApps.class)
+                                    .isPackageEnabled(packageName, mUser)) {
+                                forceKeepShortcuts.add(itemInfo.id);
                             }
                         }
 
                         if (isNewApkAvailable) {
-                            List<LauncherActivityInfo> activities = activitiesLists.get(
-                                    packageName);
                             // TODO: See if we can migrate this to
                             //  AppInfo#updateRuntimeFlagsForActivityTarget
                             itemInfo.setProgressLevel(

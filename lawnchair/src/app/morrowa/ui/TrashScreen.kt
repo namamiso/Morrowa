@@ -1,5 +1,6 @@
 package app.morrowa.ui
 
+import android.os.Build
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
@@ -38,7 +39,9 @@ import androidx.compose.ui.unit.sp
 import app.morrowa.data.HabitEntity
 import app.morrowa.data.ToDoEntity
 
-internal val TrashBackground = Color(0xF21A1A1A)
+internal val TrashBackground =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) Color(0x991A1A1A)
+    else Color(0xF21A1A1A)
 
 @Composable
 fun HabitTrashScreen(

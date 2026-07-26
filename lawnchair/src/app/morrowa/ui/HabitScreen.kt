@@ -47,6 +47,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -123,214 +124,223 @@ fun HabitScreen(viewModel: HabitViewModel) {
         Box(
             modifier = Modifier.fillMaxSize(),
         ) {
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 28.dp),
+                    .then(if (showTrash) Modifier.blur(20.dp) else Modifier),
             ) {
-                Row(
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(HabitPanelBackground, RoundedCornerShape(14.dp))
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .fillMaxSize()
+                        .padding(horizontal = 28.dp),
                 ) {
-                    Text(
-                        text = "Habit",
-                        color = Color(0xFFE6E8E1),
-                        fontSize = 26.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(
-                        onClick = {
-                            context.startActivity(Intent(context, MorrowaBackupActivity::class.java))
-                        },
-                    ) {
-                        Icon(
-                            imageVector = Icons.Rounded.Backup,
-                            contentDescription = "バックアップ",
-                            tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
-                        )
-                    }
-                    IconButton(onClick = { showTrash = true }) {
-                        Icon(
-                            imageVector = Icons.Rounded.Delete,
-                            contentDescription = "ゴミ箱",
-                            tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-
-                YearSelector(currentYear = currentYear)
-                Spacer(modifier = Modifier.height(10.dp))
-
-                GrassCalendar(
-                    completedDays = emptySet(),
-                    todayHabitDay = todayHabitDay,
-                    onDayToggle = null,
-                    dayDensities = dailyAchievement,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(HabitPanelBackground, RoundedCornerShape(12.dp))
-                        .padding(10.dp),
-                    cellSize = 9.dp,
-                    monthLabelHeight = 12.dp,
-                    cellSpacing = 2.dp,
-                    registerHitRect = !showTrash,
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(HabitPanelBackground, RoundedCornerShape(12.dp))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Text(
-                        text = "%04d/%02d/%02d（%s）".format(
-                            today.year,
-                            today.monthValue,
-                            today.dayOfMonth,
-                            japaneseDayOfWeek(today),
-                        ),
-                        color = Color(0xFFE6E8E1),
-                        fontSize = 18.sp,
-                        fontWeight = FontWeight.Bold,
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text(
-                        text = "今日",
-                        color = HabitAccent,
-                        fontSize = 16.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-
-                if (localHabits.isEmpty()) {
-                    Box(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center,
+                            .background(HabitPanelBackground, RoundedCornerShape(14.dp))
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "Habit がありません",
-                            color = Color(0xFFE6E8E1).copy(alpha = 0.72f),
+                            text = "Habit",
+                            color = Color(0xFFE6E8E1),
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
+                        )
+                        IconButton(
+                            onClick = {
+                                context.startActivity(Intent(context, MorrowaBackupActivity::class.java))
+                            },
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Backup,
+                                contentDescription = "バックアップ",
+                                tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
+                            )
+                        }
+                        IconButton(onClick = { showTrash = true }) {
+                            Icon(
+                                imageVector = Icons.Rounded.Delete,
+                                contentDescription = "ゴミ箱",
+                                tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    YearSelector(currentYear = currentYear)
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    GrassCalendar(
+                        completedDays = emptySet(),
+                        todayHabitDay = todayHabitDay,
+                        onDayToggle = null,
+                        dayDensities = dailyAchievement,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(HabitPanelBackground, RoundedCornerShape(12.dp))
+                            .padding(10.dp),
+                        cellSize = 9.dp,
+                        monthLabelHeight = 12.dp,
+                        cellSpacing = 2.dp,
+                        registerHitRect = !showTrash,
+                    )
+                    Spacer(modifier = Modifier.height(12.dp))
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(HabitPanelBackground, RoundedCornerShape(12.dp))
+                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = "%04d/%02d/%02d（%s）".format(
+                                today.year,
+                                today.monthValue,
+                                today.dayOfMonth,
+                                japaneseDayOfWeek(today),
+                            ),
+                            color = Color(0xFFE6E8E1),
+                            fontSize = 18.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "今日",
+                            color = HabitAccent,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Medium,
                         )
                     }
-                } else {
-                    LazyColumn(
-                        state = lazyListState,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(bottom = 64.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(
-                            items = localHabits,
-                            key = { habit -> habit.id },
-                        ) { habit ->
-                            ReorderableItem(reorderableState, key = habit.id) {
-                                Column {
-                                    HabitItem(
-                                        habit = habit,
-                                        completed = completions[habit.id] == true,
-                                        isTargetToday = targetToday[habit.id] ?: true,
-                                        dragHandleModifier = Modifier.draggableHandle(
-                                            onDragStarted = {
-                                                isReordering = true
-                                                selectedHabitId = null
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    if (localHabits.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "Habit がありません",
+                                color = Color(0xFFE6E8E1).copy(alpha = 0.72f),
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            state = lazyListState,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(bottom = 64.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(
+                                items = localHabits,
+                                key = { habit -> habit.id },
+                            ) { habit ->
+                                ReorderableItem(reorderableState, key = habit.id) {
+                                    Column {
+                                        HabitItem(
+                                            habit = habit,
+                                            completed = completions[habit.id] == true,
+                                            isTargetToday = targetToday[habit.id] ?: true,
+                                            dragHandleModifier = Modifier.draggableHandle(
+                                                onDragStarted = {
+                                                    isReordering = true
+                                                    selectedHabitId = null
+                                                },
+                                                onDragStopped = {
+                                                    viewModel.reorder(localHabits.map { it.id })
+                                                    isReordering = false
+                                                },
+                                            ),
+                                            onToggle = { viewModel.checkHabit(habit.id) },
+                                            onCalendarClick = {
+                                                selectedHabitId = if (selectedHabitId == habit.id) {
+                                                    null
+                                                } else {
+                                                    habit.id
+                                                }
                                             },
-                                            onDragStopped = {
-                                                viewModel.reorder(localHabits.map { it.id })
-                                                isReordering = false
+                                            onEdit = { editingHabit = habit },
+                                            onAlarmClick = { alarmTarget = habit },
+                                            onArchive = {
+                                                confirmAction = ConfirmAction(
+                                                    habit = habit,
+                                                    kind = ConfirmActionKind.Archive,
+                                                )
                                             },
-                                        ),
-                                        onToggle = { viewModel.checkHabit(habit.id) },
-                                        onCalendarClick = {
-                                            selectedHabitId = if (selectedHabitId == habit.id) {
-                                                null
-                                            } else {
-                                                habit.id
-                                            }
-                                        },
-                                        onEdit = { editingHabit = habit },
-                                        onAlarmClick = { alarmTarget = habit },
-                                        onArchive = {
-                                            confirmAction = ConfirmAction(
-                                                habit = habit,
-                                                kind = ConfirmActionKind.Archive,
-                                            )
-                                        },
-                                        onDelete = {
-                                            confirmAction = ConfirmAction(
-                                                habit = habit,
-                                                kind = ConfirmActionKind.Delete,
-                                            )
-                                        },
-                                    )
-                                    if (selectedHabitId == habit.id) {
-                                        val completionsFlow = remember(habit.id) {
-                                            viewModel.getCompletionsFlow(habit.id)
-                                        }
-                                        val completionsList by completionsFlow
-                                            .collectAsState(initial = emptyList())
-                                        val ruleHistoryFlow = remember(habit.id) {
-                                            viewModel.getRuleHistoryFlow(habit.id)
-                                        }
-                                        val ruleHistory by ruleHistoryFlow
-                                            .collectAsState(initial = emptyList())
-                                        val targetDays = remember(ruleHistory, todayHabitDay) {
-                                            if (ruleHistory.isEmpty()) {
-                                                null
-                                            } else {
-                                                val todayDate = LocalDate.parse(todayHabitDay)
-                                                val firstDayOfYear = LocalDate.of(todayDate.year, 1, 1)
-                                                generateSequence(firstDayOfYear) { it.plusDays(1) }
-                                                    .takeWhile { !it.isAfter(todayDate) }
-                                                    .map { it.toString() }
-                                                    .filter { day ->
-                                                        ruleHistory.any { rule ->
-                                                            HabitFrequency.isTargetDay(rule, day)
-                                                        }
-                                                    }
-                                                    .toSet()
-                                            }
-                                        }
-                                        GrassCalendar(
-                                            completedDays = completionsList.map { it.habitDay }.toSet(),
-                                            todayHabitDay = todayHabitDay,
-                                            onDayToggle = { day ->
-                                                viewModel.toggleCompletionForDay(habit.id, day)
+                                            onDelete = {
+                                                confirmAction = ConfirmAction(
+                                                    habit = habit,
+                                                    kind = ConfirmActionKind.Delete,
+                                                )
                                             },
-                                            targetDays = targetDays,
-                                            modifier = Modifier
-                                                .padding(top = 8.dp)
-                                                .fillMaxWidth()
-                                                .background(HabitPanelBackground, RoundedCornerShape(12.dp))
-                                                .padding(10.dp),
-                                            registerHitRect = !showTrash,
                                         )
+                                        if (selectedHabitId == habit.id) {
+                                            val completionsFlow = remember(habit.id) {
+                                                viewModel.getCompletionsFlow(habit.id)
+                                            }
+                                            val completionsList by completionsFlow
+                                                .collectAsState(initial = emptyList())
+                                            val ruleHistoryFlow = remember(habit.id) {
+                                                viewModel.getRuleHistoryFlow(habit.id)
+                                            }
+                                            val ruleHistory by ruleHistoryFlow
+                                                .collectAsState(initial = emptyList())
+                                            val targetDays = remember(ruleHistory, todayHabitDay) {
+                                                if (ruleHistory.isEmpty()) {
+                                                    null
+                                                } else {
+                                                    val todayDate = LocalDate.parse(todayHabitDay)
+                                                    val firstDayOfYear = LocalDate.of(todayDate.year, 1, 1)
+                                                    generateSequence(firstDayOfYear) { it.plusDays(1) }
+                                                        .takeWhile { !it.isAfter(todayDate) }
+                                                        .map { it.toString() }
+                                                        .filter { day ->
+                                                            ruleHistory.any { rule ->
+                                                                HabitFrequency.isTargetDay(rule, day)
+                                                            }
+                                                        }
+                                                        .toSet()
+                                                }
+                                            }
+                                            GrassCalendar(
+                                                completedDays = completionsList.map { it.habitDay }.toSet(),
+                                                todayHabitDay = todayHabitDay,
+                                                onDayToggle = { day ->
+                                                    viewModel.toggleCompletionForDay(habit.id, day)
+                                                },
+                                                targetDays = targetDays,
+                                                modifier = Modifier
+                                                    .padding(top = 8.dp)
+                                                    .fillMaxWidth()
+                                                    .background(
+                                                        HabitPanelBackground,
+                                                        RoundedCornerShape(12.dp),
+                                                    )
+                                                    .padding(10.dp),
+                                                registerHitRect = !showTrash,
+                                            )
+                                        }
                                     }
                                 }
                             }
                         }
                     }
                 }
-            }
 
-            FloatingActionButton(
-                onClick = { showAddDialog = true },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(horizontal = 20.dp, vertical = 18.dp),
-                containerColor = HabitPanelBackground,
-                contentColor = HabitAccent,
-            ) {
-                Icon(imageVector = Icons.Rounded.Add, contentDescription = "追加")
+                FloatingActionButton(
+                    onClick = { showAddDialog = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(horizontal = 20.dp, vertical = 18.dp),
+                    containerColor = HabitPanelBackground,
+                    contentColor = HabitAccent,
+                ) {
+                    Icon(imageVector = Icons.Rounded.Add, contentDescription = "追加")
+                }
             }
 
             if (showTrash) {

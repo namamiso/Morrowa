@@ -41,6 +41,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -91,89 +92,95 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
         Box(
             modifier = Modifier.fillMaxSize(),
         ) {
-            Column(
+            Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 28.dp),
+                    .then(if (showTrash) Modifier.blur(20.dp) else Modifier),
             ) {
-                Row(
+                Column(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .background(ToDoContainerColor, RoundedCornerShape(14.dp))
-                        .padding(horizontal = 14.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                        .fillMaxSize()
+                        .padding(horizontal = 28.dp),
                 ) {
-                    Text(
-                        text = "ToDo",
-                        color = Color(0xFFE6E8E1),
-                        fontSize = 26.sp,
-                        fontWeight = FontWeight.Medium,
-                        modifier = Modifier.weight(1f),
-                    )
-                    IconButton(onClick = { showTrash = true }) {
-                        Icon(
-                            imageVector = Icons.Rounded.Delete,
-                            contentDescription = "ゴミ箱",
-                            tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
-                        )
-                    }
-                }
-                Spacer(modifier = Modifier.height(10.dp))
-
-                if (localTodos.isEmpty()) {
-                    Box(
+                    Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .weight(1f),
-                        contentAlignment = Alignment.Center,
+                            .background(ToDoContainerColor, RoundedCornerShape(14.dp))
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Text(
-                            text = "ToDo がありません",
-                            color = Color(0xFFE6E8E1).copy(alpha = 0.72f),
+                            text = "ToDo",
+                            color = Color(0xFFE6E8E1),
+                            fontSize = 26.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier.weight(1f),
                         )
+                        IconButton(onClick = { showTrash = true }) {
+                            Icon(
+                                imageVector = Icons.Rounded.Delete,
+                                contentDescription = "ゴミ箱",
+                                tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
+                            )
+                        }
                     }
-                } else {
-                    LazyColumn(
-                        state = lazyListState,
-                        modifier = Modifier.weight(1f),
-                        contentPadding = PaddingValues(bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        items(
-                            items = localTodos,
-                            key = { todo -> todo.id },
-                        ) { todo ->
-                            ReorderableItem(reorderableState, key = todo.id) {
-                                ToDoItem(
-                                    todo = todo,
-                                    dragHandleModifier = Modifier.draggableHandle(
-                                        onDragStarted = {
-                                            isReordering = true
-                                        },
-                                        onDragStopped = {
-                                            viewModel.reorder(localTodos.map { it.id })
-                                            isReordering = false
-                                        },
-                                    ),
-                                    onEdit = { editingTodo = todo },
-                                    onAlarmClick = { alarmTarget = todo },
-                                    onDelete = { deletingTodo = todo },
-                                )
+                    Spacer(modifier = Modifier.height(10.dp))
+
+                    if (localTodos.isEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .weight(1f),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = "ToDo がありません",
+                                color = Color(0xFFE6E8E1).copy(alpha = 0.72f),
+                            )
+                        }
+                    } else {
+                        LazyColumn(
+                            state = lazyListState,
+                            modifier = Modifier.weight(1f),
+                            contentPadding = PaddingValues(bottom = 96.dp),
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            items(
+                                items = localTodos,
+                                key = { todo -> todo.id },
+                            ) { todo ->
+                                ReorderableItem(reorderableState, key = todo.id) {
+                                    ToDoItem(
+                                        todo = todo,
+                                        dragHandleModifier = Modifier.draggableHandle(
+                                            onDragStarted = {
+                                                isReordering = true
+                                            },
+                                            onDragStopped = {
+                                                viewModel.reorder(localTodos.map { it.id })
+                                                isReordering = false
+                                            },
+                                        ),
+                                        onEdit = { editingTodo = todo },
+                                        onAlarmClick = { alarmTarget = todo },
+                                        onDelete = { deletingTodo = todo },
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            }
 
-            FloatingActionButton(
-                onClick = { showAddDialog = true },
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(horizontal = 24.dp, vertical = 32.dp),
-                containerColor = ToDoContainerColor,
-                contentColor = Color(0xFF8FD7A3),
-            ) {
-                Icon(imageVector = Icons.Rounded.Add, contentDescription = "追加")
+                FloatingActionButton(
+                    onClick = { showAddDialog = true },
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(horizontal = 24.dp, vertical = 32.dp),
+                    containerColor = ToDoContainerColor,
+                    contentColor = Color(0xFF8FD7A3),
+                ) {
+                    Icon(imageVector = Icons.Rounded.Add, contentDescription = "追加")
+                }
             }
 
             if (showTrash) {

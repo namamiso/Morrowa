@@ -37,6 +37,7 @@ fun GrassCalendar(
     onDayToggle: ((habitDay: String) -> Unit)?,
     modifier: Modifier = Modifier,
     dayDensities: Map<String, Float>? = null,
+    targetDays: Set<String>? = null,
     cellSize: Dp = 14.dp,
     monthLabelHeight: Dp = 16.dp,
     cellSpacing: Dp = 2.dp,
@@ -123,6 +124,7 @@ fun GrassCalendar(
                     val date = weekStart.plusDays(dayOffset.toLong())
                     val habitDay = date.format(DateTimeFormatter.ISO_LOCAL_DATE)
                     val isFuture = habitDay > todayHabitDay
+                    val isTargetDay = targetDays == null || habitDay in targetDays
                     val color = when {
                         isFuture -> Color(0x15FFFFFF)
                         dayDensities != null -> dayDensities[habitDay]?.let { density ->
@@ -131,6 +133,7 @@ fun GrassCalendar(
                             )
                         } ?: Color(0x40FFFFFF)
                         habitDay in completedDays -> Color(0xFF8FD7A3)
+                        !isTargetDay -> Color(0x20FFFFFF)
                         else -> Color(0x40FFFFFF)
                     }
                     val cellModifier = Modifier
@@ -138,7 +141,7 @@ fun GrassCalendar(
                         .clip(RoundedCornerShape(3.dp))
                         .background(color)
                         .let { base ->
-                            if (isFuture || onDayToggle == null) {
+                            if (isFuture || !isTargetDay || onDayToggle == null) {
                                 base
                             } else {
                                 base.clickable { onDayToggle(habitDay) }

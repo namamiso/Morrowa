@@ -9,6 +9,7 @@ import app.morrowa.data.AlarmRepository
 import app.morrowa.data.HabitCompletionEntity
 import app.morrowa.data.HabitEntity
 import app.morrowa.data.HabitRepository
+import app.morrowa.data.HabitRuleEntity
 import java.time.LocalDate
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -89,6 +90,19 @@ class HabitViewModel(
             initialValue = emptyMap(),
         )
 
+    val targetToday: StateFlow<Map<Long, Boolean>> = combine(
+        repository.getRulesForDailyAchievement(),
+        habitDay,
+    ) { rules, day ->
+        rules.groupBy { it.habitId }.mapValues { (_, habitRules) ->
+            habitRules.any { rule -> HabitFrequency.isTargetDay(rule, day) }
+        }
+    }.stateIn(
+        scope = viewModelScope,
+        started = SharingStarted.WhileSubscribed(5000),
+        initialValue = emptyMap(),
+    )
+
     val completions: StateFlow<Map<Long, Boolean>> = combine(
         activeHabits,
         habitDay.flatMapLatest { day -> repository.getCompletionsByDay(day) },
@@ -114,6 +128,9 @@ class HabitViewModel(
 
     fun getCompletionsFlow(habitId: Long): Flow<List<HabitCompletionEntity>> =
         repository.getCompletions(habitId)
+
+    fun getRuleHistoryFlow(habitId: Long): Flow<List<HabitRuleEntity>> =
+        repository.getRuleHistory(habitId)
 
     fun getAlarmFlow(habitId: Long): Flow<AlarmEntity?> =
         alarmRepository.getAlarmFlow(AlarmRepository.TYPE_HABIT, habitId)

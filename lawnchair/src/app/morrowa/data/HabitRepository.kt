@@ -65,6 +65,9 @@ class HabitRepository(context: Context) {
 
     fun getCurrentRule(habitId: Long): Flow<HabitRuleEntity?> = dao.getCurrentRule(habitId)
 
+    fun getRuleHistory(habitId: Long): Flow<List<HabitRuleEntity>> =
+        dao.getRuleHistory(habitId)
+
     fun getRulesForDailyAchievement(): Flow<List<HabitRuleEntity>> =
         dao.getRulesForDailyAchievement()
 

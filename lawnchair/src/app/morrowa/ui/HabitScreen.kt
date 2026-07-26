@@ -4,6 +4,7 @@ import android.content.Intent
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -55,6 +56,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import app.morrowa.HabitDay
+import app.morrowa.HabitFrequency
 import app.morrowa.HabitViewModel
 import app.morrowa.MorrowaBackupActivity
 import app.morrowa.data.HabitEntity
@@ -84,6 +86,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
 
     val habits by viewModel.activeHabits.collectAsState()
     val completions by viewModel.completions.collectAsState()
+    val targetToday by viewModel.targetToday.collectAsState()
     val dailyAchievement by viewModel.dailyAchievement.collectAsState()
     val todayHabitDay by viewModel.habitDay.collectAsState()
     val today = remember(todayHabitDay) {
@@ -235,6 +238,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
                                     HabitItem(
                                         habit = habit,
                                         completed = completions[habit.id] == true,
+                                        isTargetToday = targetToday[habit.id] ?: true,
                                         dragHandleModifier = Modifier.draggableHandle(
                                             onDragStarted = {
                                                 isReordering = true
@@ -274,12 +278,35 @@ fun HabitScreen(viewModel: HabitViewModel) {
                                         }
                                         val completionsList by completionsFlow
                                             .collectAsState(initial = emptyList())
+                                        val ruleHistoryFlow = remember(habit.id) {
+                                            viewModel.getRuleHistoryFlow(habit.id)
+                                        }
+                                        val ruleHistory by ruleHistoryFlow
+                                            .collectAsState(initial = emptyList())
+                                        val targetDays = remember(ruleHistory, todayHabitDay) {
+                                            if (ruleHistory.isEmpty()) {
+                                                null
+                                            } else {
+                                                val todayDate = LocalDate.parse(todayHabitDay)
+                                                val firstDayOfYear = LocalDate.of(todayDate.year, 1, 1)
+                                                generateSequence(firstDayOfYear) { it.plusDays(1) }
+                                                    .takeWhile { !it.isAfter(todayDate) }
+                                                    .map { it.toString() }
+                                                    .filter { day ->
+                                                        ruleHistory.any { rule ->
+                                                            HabitFrequency.isTargetDay(rule, day)
+                                                        }
+                                                    }
+                                                    .toSet()
+                                            }
+                                        }
                                         GrassCalendar(
                                             completedDays = completionsList.map { it.habitDay }.toSet(),
                                             todayHabitDay = todayHabitDay,
                                             onDayToggle = { day ->
                                                 viewModel.toggleCompletionForDay(habit.id, day)
                                             },
+                                            targetDays = targetDays,
                                             modifier = Modifier
                                                 .padding(top = 8.dp)
                                                 .fillMaxWidth()
@@ -428,6 +455,7 @@ private fun japaneseDayOfWeek(date: LocalDate): String = when (date.dayOfWeek.va
 private fun HabitItem(
     habit: HabitEntity,
     completed: Boolean,
+    isTargetToday: Boolean,
     dragHandleModifier: Modifier,
     onToggle: () -> Unit,
     onCalendarClick: () -> Unit,
@@ -444,7 +472,7 @@ private fun HabitItem(
                 .fillMaxWidth()
                 .background(HabitPanelBackground, RoundedCornerShape(12.dp))
                 .combinedClickable(
-                    onClick = onToggle,
+                    onClick = onEdit,
                     onLongClick = { menuExpanded = true },
                 )
                 .padding(horizontal = 12.dp, vertical = 10.dp),
@@ -452,30 +480,53 @@ private fun HabitItem(
         ) {
             Box(
                 modifier = Modifier
-                    .size(32.dp)
-                    .background(Color.Transparent, RoundedCornerShape(3.dp)),
+                    .size(40.dp)
+                    .let { base ->
+                        if (isTargetToday) {
+                            base.clickable(onClick = onToggle)
+                        } else {
+                            base
+                        }
+                    },
                 contentAlignment = Alignment.Center,
             ) {
-                Surface(
-                    modifier = Modifier.size(30.dp),
-                    shape = RoundedCornerShape(3.dp),
-                    color = Color.Transparent,
-                    border = BorderStroke(
-                        3.dp,
-                        if (completed) HabitAccent else Color(0xFFE6E8E1).copy(alpha = 0.84f),
-                    ),
+                Box(
+                    modifier = Modifier
+                        .size(32.dp)
+                        .background(Color.Transparent, RoundedCornerShape(3.dp)),
+                    contentAlignment = Alignment.Center,
                 ) {
-                    if (completed) {
-                        Icon(
-                            imageVector = Icons.Rounded.Check,
-                            contentDescription = null,
-                            tint = HabitAccent,
-                            modifier = Modifier.padding(5.dp),
-                        )
+                    Surface(
+                        modifier = Modifier.size(30.dp),
+                        shape = RoundedCornerShape(3.dp),
+                        color = Color.Transparent,
+                        border = BorderStroke(
+                            3.dp,
+                            if (!isTargetToday) {
+                                Color(0xFFE6E8E1).copy(alpha = 0.25f)
+                            } else if (completed) {
+                                HabitAccent
+                            } else {
+                                Color(0xFFE6E8E1).copy(alpha = 0.84f)
+                            },
+                        ),
+                    ) {
+                        if (completed) {
+                            Icon(
+                                imageVector = Icons.Rounded.Check,
+                                contentDescription = null,
+                                tint = if (isTargetToday) {
+                                    HabitAccent
+                                } else {
+                                    Color(0xFFE6E8E1).copy(alpha = 0.25f)
+                                },
+                                modifier = Modifier.padding(5.dp),
+                            )
+                        }
                     }
                 }
             }
-            Spacer(modifier = Modifier.width(14.dp))
+            Spacer(modifier = Modifier.width(6.dp))
             Text(
                 text = habit.name,
                 color = Color(0xFFE6E8E1),

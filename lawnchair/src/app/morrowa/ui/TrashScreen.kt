@@ -1,6 +1,8 @@
 package app.morrowa.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -108,6 +110,11 @@ private fun TrashContent(
         modifier = Modifier
             .fillMaxSize()
             .background(backgroundColor)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+                onClick = {},
+            )
             .padding(horizontal = 24.dp, vertical = 32.dp),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {

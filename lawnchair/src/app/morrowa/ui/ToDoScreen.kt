@@ -51,6 +51,7 @@ import java.time.ZoneId
 
 private val ToDoBackground = Color.Transparent
 private val ToDoContainerColor = Color(0xCC1A1A1A)
+private val TrashBackground = Color(0xF21A1A1A)
 private val ToDoZoneId = ZoneId.of("Asia/Tokyo")
 
 @Composable
@@ -152,7 +153,7 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
                     onRestore = { viewModel.restoreTodo(it) },
                     onDeletePermanently = { viewModel.deleteTodoPermanently(it) },
                     onBack = { showTrash = false },
-                    backgroundColor = ToDoBackground,
+                    backgroundColor = TrashBackground,
                 )
             }
         }

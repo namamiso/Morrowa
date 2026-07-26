@@ -66,6 +66,7 @@
 | 39cbd85514 | 3 | ゴミ箱を TrashBackground(0xF21A1A1A)+ルート Box のクリック消費でタッチ突き抜けも修正 |
 | 987a24aad0 | 4 | ドラッグ並び替え(Habit ハンバーガー→ハンドル置換、ToDo はハンドル新設、reorderable 3.1.0、ローカルリスト+isReordering ゲート、sortOrder を 0..n-1 でトランザクション永続化。スキーマ変更なし) |
 | 09c4e3ffda | 追補 | レビュー指摘反映(ToDo ハンドルの見た目を Habit と統一 / メモの \r 除去 / TrashBackground を TrashScreen に一本化) |
+| (後日追補) | 3' | ユーザーFB「黒すぎる」→ 本物のすりガラス化: ゴミ箱表示中は背面コンテンツ(一覧+FAB)に blur(20dp) を掛け、スクリムを 60%(0x99) に薄化。blur が no-op の API 30 以下は従来の 95% を維持。BottomSheet と同じ背面ブラーパターン |
 
 ## 独立レビュー結果 (2026-07-26)
 

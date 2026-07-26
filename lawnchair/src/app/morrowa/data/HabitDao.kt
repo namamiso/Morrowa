@@ -63,6 +63,12 @@ interface HabitDao {
     @Query("SELECT * FROM habit_rules WHERE habitId = :habitId ORDER BY startDate ASC")
     fun getRuleHistory(habitId: Long): Flow<List<HabitRuleEntity>>
 
+    @Query(
+        "SELECT r.* FROM habit_rules r " +
+            "JOIN habits h ON h.id = r.habitId WHERE h.deletedAt IS NULL",
+    )
+    fun getRulesForDailyAchievement(): Flow<List<HabitRuleEntity>>
+
     @Query("SELECT * FROM habit_rules WHERE habitId IN (SELECT id FROM habits)")
     suspend fun getAllRules(): List<HabitRuleEntity>
 
@@ -79,10 +85,10 @@ interface HabitDao {
     fun getCompletions(habitId: Long): Flow<List<HabitCompletionEntity>>
 
     @Query(
-        "SELECT DISTINCT c.habitDay FROM habit_completions c " +
+        "SELECT c.* FROM habit_completions c " +
             "JOIN habits h ON h.id = c.habitId WHERE h.deletedAt IS NULL",
     )
-    fun getAllCompletedDays(): Flow<List<String>>
+    fun getCompletionsForDailyAchievement(): Flow<List<HabitCompletionEntity>>
 
     @Query("SELECT * FROM habit_completions WHERE habitDay = :habitDay")
     fun getCompletionsByDay(habitDay: String): Flow<List<HabitCompletionEntity>>

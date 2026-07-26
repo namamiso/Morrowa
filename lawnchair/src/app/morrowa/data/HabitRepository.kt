@@ -65,6 +65,9 @@ class HabitRepository(context: Context) {
 
     fun getCurrentRule(habitId: Long): Flow<HabitRuleEntity?> = dao.getCurrentRule(habitId)
 
+    fun getRulesForDailyAchievement(): Flow<List<HabitRuleEntity>> =
+        dao.getRulesForDailyAchievement()
+
     suspend fun setRule(
         habitId: Long,
         ruleType: String,
@@ -90,7 +93,8 @@ class HabitRepository(context: Context) {
 
     fun getCompletions(habitId: Long): Flow<List<HabitCompletionEntity>> = dao.getCompletions(habitId)
 
-    fun getAllCompletedDays(): Flow<List<String>> = dao.getAllCompletedDays()
+    fun getCompletionsForDailyAchievement(): Flow<List<HabitCompletionEntity>> =
+        dao.getCompletionsForDailyAchievement()
 
     fun getCompletionsByDay(
         habitDay: String,

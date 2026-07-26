@@ -84,7 +84,7 @@ fun HabitScreen(viewModel: HabitViewModel) {
 
     val habits by viewModel.activeHabits.collectAsState()
     val completions by viewModel.completions.collectAsState()
-    val completedDays by viewModel.completedDays.collectAsState()
+    val dailyAchievement by viewModel.dailyAchievement.collectAsState()
     val todayHabitDay by viewModel.habitDay.collectAsState()
     val today = remember(todayHabitDay) {
         LocalDate.parse(todayHabitDay)
@@ -164,9 +164,10 @@ fun HabitScreen(viewModel: HabitViewModel) {
                 Spacer(modifier = Modifier.height(10.dp))
 
                 GrassCalendar(
-                    completedDays = completedDays,
+                    completedDays = emptySet(),
                     todayHabitDay = todayHabitDay,
                     onDayToggle = null,
+                    dayDensities = dailyAchievement,
                     modifier = Modifier
                         .fillMaxWidth()
                         .background(HabitPanelBackground, RoundedCornerShape(12.dp))

@@ -36,6 +36,7 @@ fun GrassCalendar(
     todayHabitDay: String,
     onDayToggle: ((habitDay: String) -> Unit)?,
     modifier: Modifier = Modifier,
+    dayDensities: Map<String, Float>? = null,
     cellSize: Dp = 14.dp,
     monthLabelHeight: Dp = 16.dp,
     cellSpacing: Dp = 2.dp,
@@ -124,6 +125,11 @@ fun GrassCalendar(
                     val isFuture = habitDay > todayHabitDay
                     val color = when {
                         isFuture -> Color(0x15FFFFFF)
+                        dayDensities != null -> dayDensities[habitDay]?.let { density ->
+                            Color(0xFF8FD7A3).copy(
+                                alpha = 0.30f + 0.70f * density.coerceIn(0f, 1f),
+                            )
+                        } ?: Color(0x40FFFFFF)
                         habitDay in completedDays -> Color(0xFF8FD7A3)
                         else -> Color(0x40FFFFFF)
                     }

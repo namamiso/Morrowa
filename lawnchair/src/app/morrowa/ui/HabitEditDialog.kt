@@ -98,7 +98,7 @@ fun HabitEditDialog(
                 )
                 OutlinedTextField(
                     value = memo,
-                    onValueChange = { memo = it.replace("\n", "").take(100) },
+                    onValueChange = { memo = it.replace("\n", "").replace("\r", "").take(100) },
                     label = { Text(text = "メモ") },
                     maxLines = 4,
                     modifier = Modifier.fillMaxWidth(),

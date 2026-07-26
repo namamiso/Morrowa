@@ -38,6 +38,8 @@ import androidx.compose.ui.unit.sp
 import app.morrowa.data.HabitEntity
 import app.morrowa.data.ToDoEntity
 
+internal val TrashBackground = Color(0xF21A1A1A)
+
 @Composable
 fun HabitTrashScreen(
     deletedHabits: List<HabitEntity>,

@@ -66,7 +66,6 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 
 private val HabitBackground = Color.Transparent
 private val HabitPanelBackground = Color(0xCC1A1A1A)
-private val TrashBackground = Color(0xF21A1A1A)
 private val HabitAccent = Color(0xFF78A980)
 private val HabitChip = Color(0xFF9A8465)
 

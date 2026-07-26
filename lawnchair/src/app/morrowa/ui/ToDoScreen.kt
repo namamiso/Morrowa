@@ -57,7 +57,6 @@ import sh.calvin.reorderable.rememberReorderableLazyListState
 
 private val ToDoBackground = Color.Transparent
 private val ToDoContainerColor = Color(0xCC1A1A1A)
-private val TrashBackground = Color(0xF21A1A1A)
 private val ToDoZoneId = ZoneId.of("Asia/Tokyo")
 
 @Composable
@@ -306,7 +305,8 @@ private fun ToDoItem(
                     Icon(
                         imageVector = Icons.Rounded.DragHandle,
                         contentDescription = "並び替え",
-                        tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
+                        tint = Color(0xFFE6E8E1).copy(alpha = 0.38f),
+                        modifier = Modifier.size(28.dp),
                     )
                 }
             }

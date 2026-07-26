@@ -66,7 +66,7 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
         colorScheme = darkColorScheme(
             primary = Color(0xFF8FD7A3),
             surface = Color.Transparent,
-            onSurface = Color.White,
+            onSurface = Color(0xFFE6E8E1),
         ),
     ) {
         Box(
@@ -75,31 +75,31 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
-                    .padding(horizontal = 24.dp),
+                    .padding(horizontal = 28.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(ToDoContainerColor, RoundedCornerShape(20.dp))
-                        .padding(horizontal = 18.dp, vertical = 14.dp),
+                        .background(ToDoContainerColor, RoundedCornerShape(14.dp))
+                        .padding(horizontal = 14.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Text(
                         text = "ToDo",
-                        color = Color.White,
-                        fontSize = 32.sp,
-                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFFE6E8E1),
+                        fontSize = 26.sp,
+                        fontWeight = FontWeight.Medium,
                         modifier = Modifier.weight(1f),
                     )
                     IconButton(onClick = { showTrash = true }) {
                         Icon(
                             imageVector = Icons.Rounded.Delete,
                             contentDescription = "ゴミ箱",
-                            tint = Color.White.copy(alpha = 0.72f),
+                            tint = Color(0xFFE6E8E1).copy(alpha = 0.72f),
                         )
                     }
                 }
-                Spacer(modifier = Modifier.height(24.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
                 if (todos.isEmpty()) {
                     Box(
@@ -110,14 +110,14 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
                     ) {
                         Text(
                             text = "ToDo がありません",
-                            color = Color.White.copy(alpha = 0.72f),
+                            color = Color(0xFFE6E8E1).copy(alpha = 0.72f),
                         )
                     }
                 } else {
                     LazyColumn(
                         modifier = Modifier.weight(1f),
                         contentPadding = PaddingValues(bottom = 96.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
                         items(
                             items = todos,
@@ -243,16 +243,16 @@ private fun ToDoItem(
                     onClick = onEdit,
                     onLongClick = { menuExpanded = true },
                 ),
-            shape = RoundedCornerShape(16.dp),
+            shape = RoundedCornerShape(12.dp),
             color = ToDoContainerColor,
         ) {
             Row(
-                modifier = Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 12.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = todo.title,
-                    color = if (isOverdue) Color(0xFFFF8A80) else Color.White,
+                    color = if (isOverdue) Color(0xFFFF8A80) else Color(0xFFE6E8E1),
                     fontSize = 18.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -262,7 +262,7 @@ private fun ToDoItem(
                     Spacer(modifier = Modifier.width(16.dp))
                     Text(
                         text = formatScheduledDate(it),
-                        color = Color.White.copy(alpha = 0.72f),
+                        color = Color(0xFFE6E8E1).copy(alpha = 0.72f),
                         fontSize = 14.sp,
                     )
                 }

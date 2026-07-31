@@ -5,6 +5,7 @@ import android.view.MotionEvent
 import androidx.lifecycle.lifecycleScope
 import app.lawnchair.LawnchairLauncher
 import app.lawnchair.gestures.config.GestureHandlerConfig
+import app.morrowa.MorrowaWorkspacePageView
 import app.lawnchair.preferences2.PreferenceManager2
 import com.android.launcher3.AbstractFloatingView
 import com.android.launcher3.LauncherState
@@ -62,7 +63,7 @@ class VerticalSwipeTouchController(
             if (noIntercept) {
                 return false
             }
-            detector.setDetectableScrollConditions(getSwipeDirection(), false)
+            detector.setDetectableScrollConditions(getSwipeDirection(ev), false)
         }
         if (noIntercept) {
             return false
@@ -115,13 +116,20 @@ class VerticalSwipeTouchController(
         detector.finishedScrolling()
     }
 
-    private fun getSwipeDirection(): Int {
+    private fun getSwipeDirection(ev: MotionEvent): Int {
         var directions = 0
         if (overrideSwipeUp || overrideTwoFingerSwipeUp) {
             directions = directions or BothAxesSwipeDetector.DIRECTION_UP
         }
         if (overrideSwipeDown || overrideTwoFingerSwipeDown) {
             directions = directions or BothAxesSwipeDetector.DIRECTION_DOWN
+        }
+        // Morrowa: leave directions a habit/todo list under the finger still wants.
+        if (MorrowaWorkspacePageView.blocksVerticalSwipe(launcher, ev.x, ev.y, true)) {
+            directions = directions and BothAxesSwipeDetector.DIRECTION_UP.inv()
+        }
+        if (MorrowaWorkspacePageView.blocksVerticalSwipe(launcher, ev.x, ev.y, false)) {
+            directions = directions and BothAxesSwipeDetector.DIRECTION_DOWN.inv()
         }
         return directions
     }

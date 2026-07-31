@@ -44,6 +44,8 @@ import com.android.launcher3.Launcher;
 import com.android.launcher3.LauncherState;
 import com.android.launcher3.states.StateAnimationConfig;
 
+import app.morrowa.MorrowaWorkspacePageView;
+
 /**
  * TouchController to switch between NORMAL and ALL_APPS state.
  */
@@ -156,6 +158,11 @@ public class AllAppsSwipeController extends AbstractStateChangeTouchController {
             return false;
         }
         if (mLauncher.isInState(ALL_APPS) && !mLauncher.getAppsView().shouldContainerScroll(ev)) {
+            return false;
+        }
+        // Morrowa: leave the up-swipe to a habit/todo list that can still scroll.
+        if (mLauncher.isInState(NORMAL) && MorrowaWorkspacePageView.blocksVerticalSwipe(
+                mLauncher, ev.getX(), ev.getY(), true /* swipeUp */)) {
             return false;
         }
         return true;

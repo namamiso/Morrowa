@@ -77,6 +77,16 @@
 - 専用ハンドルは即時ドラッグ型(長押し不要)。ハンドル起点の縦スクロールは並び替えになる仕様。
 - ハンドルは Workspace のスワイプ除外レジストリに未登録のため、ドラッグを横方向に流すとページングに奪われてドラッグが中断され得る(isReordering の固着は無し)。実機確認項目。
 
+## 追補 (2026-07-31): 一覧の縦スクロールがランチャージェスチャに奪われる件
+
+- 実機FB: Habit/ToDo の一覧が要素数が多くてもスクロールできない(上スワイプ=ドロワー、下スワイプ=通知に奪われる)。要件: リスト上ではスクロール優先、ただしスクロール不要時と最上部/最下部に達した後は通常のランチャージェスチャを通す。
+- 調査(独立エージェント)で確定した縦系 TouchController 構成: 上スワイプ= `PortraitStatesTouchController`(NoButtonNavbarToOverview が継承、全ナビモードをカバー)、下スワイプ= `StatusBarTouchController` と Lawnchair `VerticalSwipeTouchController` の2系統(既定設定でも two-finger 既定値の副作用で下方向が有効)。いずれも DOWN 時の canInterceptTouch/getSwipeDirection で辞退可能。コントローラの MotionEvent は DragLayer ローカル座標。
+- **採用設計(エッジ認識付き問い合わせ方式)**: ハンドルの DOWN 全占有方式は「端でランチャーに譲る」が構造的に不可能なため不採用。Bug1 の横スワイプと同じ「ランチャー側が Morrowa に問い合わせる」方式の縦版を採用。
+  1. Compose: LazyColumn(Habit/ToDo/ゴミ箱)の矩形と canScrollBackward/canScrollForward をレジストリへリアルタイム公開(ゴミ箱表示中は下の一覧の登録を停止)
+  2. 各コントローラはスワイプ方向が固定なので、DOWN 時に「タッチがリスト上 かつ その方向へスクロール余地あり」なら辞退。余地なし(端 or スクロール不要)なら通常動作 → レース無しで要件成立
+  3. フック4箇所: PortraitStatesTouchController / AllAppsSwipeController(保険) / StatusBarTouchController(instanceof Launcher ガード) / VerticalSwipeTouchController(方向ビット単位)
+- 既知の制限(記録): リスト中間位置では2本指下スワイプ(クイック設定)もリストに譲られる。ドロワーを閉じかけ中の再掴み(mCurrentAnimation != null)は抑止しない。
+
 ## 実機検証手順 (ユーザーの Mac でビルド後)
 
 1. **文字統一**: ToDo のヘッダー/文字色/カード密度が Habit と揃って見えること(本文サイズは従来どおり)

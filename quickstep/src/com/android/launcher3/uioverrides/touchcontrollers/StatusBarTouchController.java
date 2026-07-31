@@ -38,6 +38,7 @@ import android.view.WindowManager;
 
 import com.android.launcher3.AbstractFloatingView;
 import com.android.launcher3.BaseActivity;
+import com.android.launcher3.Launcher;
 import com.android.launcher3.DeviceProfile;
 import com.android.launcher3.Utilities;
 import com.android.launcher3.util.MSDLPlayerWrapper;
@@ -46,6 +47,8 @@ import com.android.launcher3.util.VibratorWrapper;
 import com.android.quickstep.SystemUiProxy;
 
 import com.android.systemui.Flags;
+
+import app.morrowa.MorrowaWorkspacePageView;
 import com.google.android.msdl.data.model.MSDLToken;
 import java.util.function.Supplier;
 import java.lang.reflect.InvocationTargetException;
@@ -221,6 +224,11 @@ public class StatusBarTouchController implements TouchController {
             if (ev.getY() > (mLauncher.getDragLayer().getHeight() - dp.getInsets().bottom)) {
                 return false;
             }
+        }
+        // Morrowa: leave the down-swipe to a habit/todo list that can still scroll.
+        if (mLauncher instanceof Launcher && MorrowaWorkspacePageView.blocksVerticalSwipe(
+                (Launcher) mLauncher, ev.getX(), ev.getY(), false /* swipeUp */)) {
+            return false;
         }
         return true;
         // LC-Ignored: return SystemUiProxy.INSTANCE.get(mLauncher).isActive();

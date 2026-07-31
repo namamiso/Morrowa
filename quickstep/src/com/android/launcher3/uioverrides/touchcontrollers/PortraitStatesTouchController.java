@@ -37,6 +37,8 @@ import com.android.launcher3.touch.SingleAxisSwipeDetector;
 import com.android.launcher3.uioverrides.QuickstepLauncher;
 import com.android.launcher3.uioverrides.states.OverviewState;
 import com.android.quickstep.SystemUiProxy;
+
+import app.morrowa.MorrowaWorkspacePageView;
 import com.android.quickstep.util.LayoutUtils;
 import com.android.quickstep.views.RecentsView;
 import com.android.systemui.contextualeducation.GestureType;
@@ -69,6 +71,11 @@ public class PortraitStatesTouchController extends AbstractStateChangeTouchContr
                 return true;
             }
             // Otherwise, don't intercept so they can scroll recents, dismiss a task, etc.
+            return false;
+        }
+        // Morrowa: leave the up-swipe to a habit/todo list that can still scroll.
+        if (interceptAnywhere && MorrowaWorkspacePageView.blocksVerticalSwipe(
+                mLauncher, ev.getX(), ev.getY(), true /* swipeUp */)) {
             return false;
         }
         if (mLauncher.isInState(ALL_APPS)) {

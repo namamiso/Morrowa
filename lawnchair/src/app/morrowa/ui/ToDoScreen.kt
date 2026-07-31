@@ -141,7 +141,9 @@ fun ToDoScreen(viewModel: ToDoViewModel) {
                     } else {
                         LazyColumn(
                             state = lazyListState,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .morrowaVerticalScrollRegion(lazyListState, enabled = !showTrash),
                             contentPadding = PaddingValues(bottom = 96.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {

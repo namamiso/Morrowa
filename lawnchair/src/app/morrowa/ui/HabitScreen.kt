@@ -231,7 +231,9 @@ fun HabitScreen(viewModel: HabitViewModel) {
                     } else {
                         LazyColumn(
                             state = lazyListState,
-                            modifier = Modifier.weight(1f),
+                            modifier = Modifier
+                                .weight(1f)
+                                .morrowaVerticalScrollRegion(lazyListState, enabled = !showTrash),
                             contentPadding = PaddingValues(bottom = 64.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {

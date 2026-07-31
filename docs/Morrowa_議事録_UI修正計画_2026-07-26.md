@@ -86,6 +86,7 @@
   2. 各コントローラはスワイプ方向が固定なので、DOWN 時に「タッチがリスト上 かつ その方向へスクロール余地あり」なら辞退。余地なし(端 or スクロール不要)なら通常動作 → レース無しで要件成立
   3. フック4箇所: PortraitStatesTouchController / AllAppsSwipeController(保険) / StatusBarTouchController(instanceof Launcher ガード) / VerticalSwipeTouchController(方向ビット単位)
 - 既知の制限(記録): リスト中間位置では2本指下スワイプ(クイック設定)もリストに譲られる。ドロワーを閉じかけ中の再掴み(mCurrentAnimation != null)は抑止しない。
+- 実装記録: コミット 252ea888b1。Codex 認証失効(refresh token revoked)のため今回は統括が直接実装(要 `codex login` 再認証)。独立レビューで import 欠落1件を検出・修正済み、他は問題なし。ゴミ箱一覧にも同機構を適用。
 
 ## 実機検証手順 (ユーザーの Mac でビルド後)
 

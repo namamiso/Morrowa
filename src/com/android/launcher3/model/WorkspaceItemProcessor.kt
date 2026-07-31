@@ -191,17 +191,23 @@ class WorkspaceItemProcessor(
                     "Activity not enabled for id=${c.id}, component=$cn, user=${c.user}." +
                         " Will attempt to find fallback Activity for targetPkg=$targetPkg.",
                 )
-                intent = pmHelper.getAppLaunchIntent(targetPkg, c.user)
-                if (intent != null) {
+                val fallbackIntent = pmHelper.getAppLaunchIntent(targetPkg, c.user)
+                if (fallbackIntent != null) {
+                    intent = fallbackIntent
                     c.restoreFlag = 0
                     c.updater().put(Favorites.INTENT, intent.toUri(0)).commit()
                 } else {
-                    c.markDeleted(
-                        "No Activities found for id=${c.id}, targetPkg=$targetPkg, component=$cn." +
-                            " Unable to create launch Intent.",
-                        RestoreError.APP_NO_LAUNCH_INTENT,
+                    // Morrowa: the package is installed (validTarget above) but has no
+                    // resolvable launch activity right now — a mid-update component flip
+                    // (e.g. the Google app toggling its launcher alias), not an uninstall.
+                    // Keep the row; a later load or package-update broadcast repairs the
+                    // intent once the activity list is back.
+                    FileLog.d(
+                        TAG,
+                        "No Activities found for id=${c.id}, targetPkg=$targetPkg," +
+                            " component=$cn. Keeping icon: package is still installed.",
                     )
-                    return
+                    allowMissingTarget = true
                 }
             }
         }
